@@ -68,7 +68,7 @@ def get_receipt_contour(contours):
             return approx
 
 
-def contour_to_rect(contour):
+def contour_to_rect(contour, resize_ratio):
     pts = contour.reshape(4, 2)
     rect = np.zeros((4, 2), dtype="float32")
     # top-left point has the smallest sum
@@ -85,56 +85,49 @@ def contour_to_rect(contour):
     return rect / resize_ratio
 
 
-BASE_PATH=os.getcwd()
+BASE_PATH = os.getcwd()
 INPUT_FOLDER = os.path.join(BASE_PATH, "data\\img")
 TMP_FOLDER = os.path.join(BASE_PATH, "data\\tmp")
-if __name__ == "__main__":
-    file_name = "./data/origin_img/PXL_20240611_150704650.MP.jpg"
 
+
+def main():
+    file_name = "../data/origin_img/0.jpg"
     image = cv2.imread(file_name)
-    # Downscale image as finding receipt contour is more efficient on a small image
     resize_ratio = 500 / image.shape[0]
     original = image.copy()
     image = opencv_resize(image, resize_ratio)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    # lot_gray(gray)
-    # Get rid of noise with Gaussian Blur filter
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    # plot_gray(blurred)
-    # Detect white regions
     rectKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
     dilated = cv2.dilate(blurred, rectKernel)
-    # plot_gray(dilated)
     edged = cv2.Canny(dilated, 100, 200, apertureSize=3)
-    # plot_gray(edged)
     contours, hierarchy = cv2.findContours(
         edged, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
     )
     image_with_contours = cv2.drawContours(image.copy(), contours, -1, (0, 255, 0), 3)
-    # plot_rgb(image_with_contours)
-    # Get 10 largest contours
     largest_contours = sorted(contours, key=cv2.contourArea, reverse=True)[:10]
     image_with_largest_contours = cv2.drawContours(
         image.copy(), largest_contours, -1, (0, 255, 0), 3
     )
-    # plot_rgb(image_with_largest_contours)
-
-    # approximate the contour by a more primitive polygon shape
 
     get_receipt_contour(largest_contours)
     receipt_contour = get_receipt_contour(largest_contours)
     image_with_receipt_contour = cv2.drawContours(
         image.copy(), [receipt_contour], -1, (0, 255, 0), 2
     )
-    # plot_rgb(image_with_receipt_contour)
 
-    scanned = wrap_perspective(original.copy(), contour_to_rect(receipt_contour))
+    scanned = wrap_perspective(
+        original.copy(), contour_to_rect(receipt_contour, resize_ratio)
+    )
     plt.figure(figsize=(16, 10))
     plt.imshow(scanned)
 
     result = bw_scanner(scanned)
-    # plot_gray(result)
     output = Image.fromarray(result)
     input_path = os.path.join(INPUT_FOLDER, image)
     tmp_path = os.path.join(TMP_FOLDER, image)
     output.save("result.png")
+
+
+if __name__ == "__main__":
+    main()
