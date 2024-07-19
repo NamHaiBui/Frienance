@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "299162737168",
+    "project_id": "frienance-325b0",
+    "storage_bucket": "frienance-325b0.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:299162737168:android:17fb27baf45bb005958895",
+        "android_client_info": {
+          "package_name": "com.dev.frienance"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "299162737168-20p5l2aeh3fiedtqdcq8tfui0bsv9to3.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA1Q5LjBgasv2fxQA_Fkp0LP4-PHIeZoto"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "299162737168-20p5l2aeh3fiedtqdcq8tfui0bsv9to3.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "299162737168-tsoql7prjlidhid5nimofv5f9jtl5t0o.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.frontend"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

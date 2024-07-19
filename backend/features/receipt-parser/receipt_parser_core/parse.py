@@ -24,8 +24,8 @@ from terminaltables import SingleTable
 from receipt_parser_core.receipt import Receipt
 
 BASE_PATH = os.getcwd()
-ORANGE = '\033[33m'
-RESET = '\033[0m'
+ORANGE = "\033[33m"
+RESET = "\033[0m"
 
 STATS_OUTPUT_FORMAT = "{0:10.0f},{1:d},{2:d},{3:d},{4:d},\n"
 
@@ -42,16 +42,10 @@ def get_files_in_folder(folder, include_hidden=False):
 
     files = os.listdir(os.path.join(BASE_PATH, folder))  # list content of folder
     if not include_hidden:  # avoid files starting with "."
-        files = [
-            f for f in files if not f.startswith(".")
-        ]  #
+        files = [f for f in files if not f.startswith(".")]  #
 
-    files = [
-        os.path.join(folder, f) for f in files
-    ]  # complete path
-    return [
-        f for f in files if os.path.isfile(f)
-    ]  # just files
+    files = [os.path.join(folder, f) for f in files]  # complete path
+    return [f for f in files if os.path.isfile(f)]  # just files
 
 
 def output_statistics(stats, write_file="stats.csv"):
@@ -65,8 +59,7 @@ def output_statistics(stats, write_file="stats.csv"):
     """
 
     stats_str = STATS_OUTPUT_FORMAT.format(
-        time.time(), stats["total"], stats["market"], stats["date"],
-        stats["sum"]
+        time.time(), stats["total"], stats["market"], stats["date"], stats["sum"]
     )
     # print(stats_str)
 
@@ -106,14 +99,14 @@ def ocr_receipts(config, receipt_files):
     stats = defaultdict(int)
 
     table_data = [
-        ['Path', 'Market', "Date", "Items", "SUM"],
+        ["Path", "Market", "Date", "Items", "SUM"],
     ]
 
     if config.results_as_json:
         results_to_json(config, receipt_files)
 
     for receipt_path in receipt_files:
-        with open(receipt_path, encoding="utf8", errors='ignore') as receipt:
+        with open(receipt_path, encoding="utf8", errors="ignore") as receipt:
             receipt = Receipt(config, receipt.readlines())
 
             item_list = ""
@@ -121,7 +114,7 @@ def ocr_receipts(config, receipt_files):
                 if not item:
                     continue
 
-                item_list += ' '.join(item) + "\n"
+                item_list += " ".join(item) + "\n"
 
             table_data.append(
                 [receipt_path, receipt.market, receipt.date, item_list, receipt.sum]
@@ -143,7 +136,7 @@ def ocr_receipts(config, receipt_files):
 
 def results_to_json(config, receipt_files):
     for receipt_path in receipt_files:
-        with open(receipt_path, encoding="utf8", errors='ignore') as receipt:
+        with open(receipt_path, encoding="utf8", errors="ignore") as receipt:
             receipt = Receipt(config, receipt.readlines())
             out = open(receipt_path + ".json", "w")
             out.write(receipt.to_json())

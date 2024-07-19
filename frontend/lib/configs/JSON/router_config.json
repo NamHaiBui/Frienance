@@ -1,0 +1,14 @@
+{
+  "appRouterConfig": {
+    "roles": {
+      "authorized": {
+        "defaultHomePage": "/dashboard",
+        "allowedPages": ["/dashboard", "/budget", "/settings"]
+      },
+      "guest": {
+        "defaultHomePage": "/home",
+        "allowedPages": ["/demo"]
+      }
+    }
+  }
+}

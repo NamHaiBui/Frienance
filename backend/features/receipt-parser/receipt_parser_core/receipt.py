@@ -93,7 +93,7 @@ class Receipt(object):
                 # validate date using the dateutil library (see: https://dateutil.readthedocs.io/)
 
                 date_str = match.group()
-                print(date_str)
+                # print(date_str)
                 date_str = date_str.replace(" ", "")
 
                 # try:
@@ -122,23 +122,20 @@ class Receipt(object):
             if parse_stop:
                 continue
 
-            # if self.market != "Metro":
-            # for stop_word in stop_words:
-            #     if fnmatch.fnmatch(line, f"*{stop_word}*"):
-            #         return items
+            if self.market != "LanThai":
+                for stop_word in stop_words:
+                    if fnmatch.fnmatch(line, f"*{stop_word}*"):
+                        return items
 
             match = re.search(item_format, line)
-            print(match)
+            # print(match)
             if hasattr(match, "group"):
-                article_name = match.group(2)
-                if match.group(2) == "-":
-                    article_sum = "-" + match.group(3).replace(",", ".")
-                else:
-                    article_sum = match.group(3).replace(",", ".")
+                item_with_p = match.group(0)
+                item_p = item_with_p.split(" ")[-1]
+                item_name = " ".join(item_with_p.split(" ")[:-2])
             else:
                 continue
-
-            items.append(item(article_name, article_sum))
+            items.append(item(item_name, item_p))
 
         return items
 
@@ -175,7 +172,7 @@ class Receipt(object):
                 # Replace all commas with a dot to make
                 # finding and parsing the sum easier
                 sum_line = sum_line.replace(",", ".")
-                print(sum_line)
+                # print(sum_line)
                 # Parse the sum
                 sum_float = re.search(self.config.sum_format, sum_line)
                 if sum_float:

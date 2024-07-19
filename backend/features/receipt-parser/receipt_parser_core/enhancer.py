@@ -145,7 +145,7 @@ def run_tesseract(input_file, output_file, language="eng"):
             img.save(transfer)
 
         with Image.open(transfer) as img:
-            custom_oem_psm_config = r"--psm 1 --oem 3 "
+            custom_oem_psm_config = r"--psm 6 --oem 3 "
             image_data = pytesseract.image_to_string(
                 img, lang=language, timeout=120, config=custom_oem_psm_config
             )
@@ -284,7 +284,6 @@ def process_receipt(config, filename, rotate=True, grayscale=True, gaussian_blur
 
 def main():
     prepare_folders()
-
     dir_path = os.getcwd()
     config = read_config(config=dir_path + "/config.yml")
 
@@ -322,7 +321,7 @@ def main():
         img = enhance_image(img, tmp_path)
         cv2.imwrite(tmp_path, img)
 
-        run_tesseract(tmp_path, out_path, config.language)
+        run_tesseract(tmp_path, out_path, config.language)  # type: ignore
 
         i = i + 1
 
