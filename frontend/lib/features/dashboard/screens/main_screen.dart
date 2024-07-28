@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/features/dashboard/components/hero/charts/bar_chart.dart';
+import 'package:frontend/features/template/dynamic_template.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -10,7 +12,21 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
-    
-    return Center(child: Column());
+    return const DynamicScaffold(
+      body: Column(children: [
+        ExpenseBarChart()
+        // Biggest Expense
+        // Top Expenses List
+        //
+      ]),
+    );
   }
+}
+
+void main() {
+  runApp(
+    MaterialApp(
+      home: const MainScreen(),
+    ),
+  );
 }

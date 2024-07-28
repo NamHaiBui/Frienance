@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:frontend/features/auth/auth_routing.dart';
 import 'package:frontend/features/error/error_page.dart';
 import 'package:frontend/features/service_provider.dart';

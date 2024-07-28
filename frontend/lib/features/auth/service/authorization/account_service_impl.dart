@@ -12,7 +12,7 @@ class AccountServiceImpl implements AccountService {
   @override
   Future<UserID> createAccount() async {
     // Assuming you have a way to get the current user's ID (e.g., from Firebase Auth)
-    final userId = 'your_user_id'; // Replace with actual user ID
+    const userId = 'your_user_id'; // Replace with actual user ID
 
     // Create a new user document in Firestore
     final userDoc = _firestore.collection('users').doc(userId);
