@@ -25,8 +25,8 @@ class _MainScreenState extends State<MainScreen> {
 
 void main() {
   runApp(
-    MaterialApp(
-      home: const MainScreen(),
+    const MaterialApp(
+      home: MainScreen(),
     ),
   );
 }

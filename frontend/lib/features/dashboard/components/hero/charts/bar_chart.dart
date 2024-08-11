@@ -2,11 +2,13 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/features/dashboard/components/hero/charts/config/bar_chart_config.dart';
 import 'package:frontend/features/dashboard/components/hero/charts/legend_widget.dart';
+import 'package:frontend/features/dashboard/provider/time_frame_provider.dart';
 import 'package:frontend/features/template/theme.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 typedef FieldId = String;
 
-class ExpenseBarChart extends StatelessWidget {
+class ExpenseBarChart extends ConsumerWidget {
   // final String timeFrame;
   // final String groupByCondition;
   // final String dataSet;
@@ -49,7 +51,21 @@ class ExpenseBarChart extends StatelessWidget {
     );
   }
 
-  Widget bottomTitles(double value, TitleMeta meta, String groupByCondition) {
+  Widget Function(double value, TitleMeta meta) bottomTitlesSelector(
+      String groupByCondition) {
+    switch (groupByCondition) {
+      case "Year":
+        return bottomTitlesByYear;
+      case "Month":
+        return bottomTitlesByMonth;
+      case "Week":
+        return bottomTitlesByWeek;
+      default:
+        return bottomTitlesByMonth;
+    }
+  }
+
+  Widget bottomTitlesByMonth(double value, TitleMeta meta) {
     const style = TextStyle(fontSize: 10);
     String text;
     switch (value.toInt()) {
@@ -99,8 +115,73 @@ class ExpenseBarChart extends StatelessWidget {
     );
   }
 
+  Widget bottomTitlesByWeek(double value, TitleMeta meta) {
+    const style = TextStyle(fontSize: 10);
+    String text;
+    switch (value.toInt()) {
+      case 0:
+        text = 'Mon';
+        break;
+      case 1:
+        text = 'Tue';
+        break;
+      case 2:
+        text = 'Wed';
+        break;
+      case 3:
+        text = 'Thu';
+        break;
+      case 4:
+        text = 'Fri';
+        break;
+      case 5:
+        text = 'Sat';
+        break;
+      case 6:
+        text = 'Sun';
+        break;
+      default:
+        text = '';
+    }
+
+    return SideTitleWidget(
+      axisSide: meta.axisSide,
+      child: Text(text, style: style),
+    );
+  }
+
+  Widget bottomTitlesByYear(double value, TitleMeta meta) {
+    const style = TextStyle(fontSize: 10);
+    String text;
+    switch (value.toInt()) {
+      case 0:
+        text = '2024';
+        break;
+      case 1:
+        text = '2023';
+        break;
+      case 2:
+        text = '2022';
+        break;
+      case 3:
+        text = '2021';
+        break;
+      case 4:
+        text = '2020';
+        break;
+      default:
+        text = '';
+    }
+
+    return SideTitleWidget(
+      axisSide: meta.axisSide,
+      child: Text(text, style: style),
+    );
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final timeFrame = ref.watch(timeFrameProvider);
     return Container(
       width: MediaQuery.of(context).size.width * 0.4,
       decoration: BoxDecoration(
@@ -139,7 +220,11 @@ class ExpenseBarChart extends StatelessWidget {
                   bottomTitles: AxisTitles(
                     sideTitles: SideTitles(
                       showTitles: true,
-                      getTitlesWidget: bottomTitles,
+                      getTitlesWidget: (value, meta) {
+                        return bottomTitlesSelector(
+                          timeFrame,
+                        )(value, meta);
+                      },
                       reservedSize: 20,
                     ),
                   ),
