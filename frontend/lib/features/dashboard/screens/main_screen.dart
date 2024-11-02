@@ -15,9 +15,6 @@ class _MainScreenState extends State<MainScreen> {
     return const DynamicScaffold(
       body: Column(children: [
         ExpenseBarChart()
-        // Biggest Expense
-        // Top Expenses List
-        //
       ]),
     );
   }
