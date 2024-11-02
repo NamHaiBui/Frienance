@@ -15,27 +15,47 @@
     the `--base-href` argument provided to `flutter build`.
   -->
     <base href="$FLUTTER_BASE_HREF" />
-
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.26.3/full/pyodide.js"></script>
     <meta charset="UTF-8" />
     <meta content="IE=Edge" http-equiv="X-UA-Compatible" />
     <meta name="description" content="A new Flutter project." />
 
     <!-- iOS meta tags & icons -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
-    <meta name="apple-mobile-web-app-title" content="frontend" />
+    <meta name="apple-mobile-web-app-title" content="receipt_manager" />
     <link rel="apple-touch-icon" href="icons/Icon-192.png" />
-
-    <!-- Favicon -->
     <link rel="icon" type="image/png" href="favicon.png" />
-
-    <title>frontend</title>
+    <title>Receipt Manager</title>
     <link rel="manifest" href="manifest.json" />
     <script
       type="application/javascript"
       src="/assets/packages/flutter_inappwebview_web/assets/web/web_support.js"
       defer
     ></script>
+    <script>
+      var serviceWorkerVersion = "{{flutter_service_worker_version}}";
+      var engineVersion = null;
+    </script>
+    <script src="flutter.js" defer></script>
+    <script>
+      window.pyodideReady = false;
+      async function loadPyodideAndPackages() {
+        try {
+          pyodide = await loadPyodide();
+          await pyodide.loadPackage(["numpy", "pillow", "micropip"]);
+          await pyodide.runPythonAsync(`
+            import micropip
+            await micropip.install('fuzzywuzzy')
+          `);
+          window.pyodideReady = true;
+        } catch (e) {
+          console.error("Pyodide initialization failed:", e);
+        }
+      }
+      loadPyodideAndPackages();
+    </script>
   </head>
   <body>
     <script src="flutter_bootstrap.js" async></script>

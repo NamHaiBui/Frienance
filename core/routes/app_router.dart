@@ -20,8 +20,6 @@ class AppGoRouter extends _$AppGoRouter {
         routes: appGoRoutes,
         redirect: (context, goRouterState) async {
           return null;
-        
-          
         });
   }
 }
