@@ -1,0 +1,37 @@
+{
+    "total_terms": [
+      "Total",
+      "total amount",
+      "amount due",
+      "amount",
+      "due",
+      "total due", 
+      "total amount due",
+      "total price",
+      "total cost",
+      "totals",
+      "sum",
+      "Sums",
+      "Sum",
+      "sums", 
+      "Total",
+      "Totals",
+      "Sub Total",
+      "Sales Tax",
+      "Total",
+      "Tip Suggestions"
+    ],
+    "ignore_keys": [
+      "tax",
+      "tip",
+      "tips",
+      "taxable",
+      "non-taxable",
+      "subtotal",
+      "sub total"
+    ],
+    "sum_format": "\\d+(\\.\\s?|,\\s?|[^a-zA-Z\\d])\\d{2}",
+    "item_format": "^\\s*([^\\d\\s]+(?:\\s[^\\d\\s]+)*)\\s+(?:\\d+\\s)?\\d+(?:\\s?[\\.,]\\s?\\d{1,2})\\b",
+    "item_format_metro": "\\b(\\d+)\\s+([A-Za-z\\s]+?)\\s+(\\d+\\.\\d{2})\\b",
+    "date_format": "\\b(0[1-9]|1[0-2])-([0-3]?[0-9])\\b"
+  }
