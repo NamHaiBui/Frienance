@@ -1,8 +1,12 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as path;
 import 'package:opencv_dart/opencv_dart.dart' as cv2;
+import 'package:path_provider/path_provider.dart';
 
 class Point {
   final double x;
@@ -14,31 +18,115 @@ class Point {
 }
 
 class ReceiptRecognizer {
-  final String basePath = Directory.current.path;
-  late final String inputFolder;
-  late final String outputFolder;
+  String basePath = 'D:\\Side Ultimatum\\Frienance\\lib\\cache';
+  final String inputFolder = "1_source_img";
+  final String outputFolder = "2_temp_img";
 
-  ReceiptRecognizer() {
-    inputFolder = path.join(basePath, 'lib', 'cache', '1_source_img');
-    outputFolder = path.join(basePath, 'lib', 'cache', '2_temp_img');
-    prepareFolders();
+  static Future<ReceiptRecognizer> create() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    final instance = ReceiptRecognizer._();
+    await instance._init();
+    return instance;
   }
 
-  void prepareFolders() {
-    for (var folder in [inputFolder, outputFolder]) {
-      Directory(folder).createSync(recursive: true);
+  ReceiptRecognizer._();
+
+  Future<void> _init() async {
+    // Use application documents directory
+    final documentsDirectory = await getApplicationDocumentsDirectory();
+    basePath = path.join(documentsDirectory.path, 'cache');
+
+    await prepareFolders();
+  }
+
+  Future<void> copyImagesToSourceDir(List<String> imagePaths) async {
+    try {
+      final sourceDir = Directory(path.join(basePath, inputFolder));
+      await sourceDir.create(recursive: true);
+
+      for (String imagePath in imagePaths) {
+        final fileName = path.basename(imagePath);
+        final destination = path.join(sourceDir.path, fileName);
+
+        // Get asset from app bundle
+        final byteData = await rootBundle.load('assets/images/$fileName');
+        final buffer = byteData.buffer;
+
+        // Write to emulator storage
+        await File(destination).writeAsBytes(
+            buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes));
+
+        if (kDebugMode) {
+          print('Copied $fileName to $destination');
+        }
+        break;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error copying images: $e');
+      }
+      rethrow;
     }
   }
 
-  List<String> findImages(String folder) {
-    return Directory(folder)
-        .listSync()
-        .where((entity) =>
-            entity is File &&
-            ['.jpg', '.jpeg', '.png']
-                .contains(path.extension(entity.path).toLowerCase()))
-        .map((entity) => entity.path)
-        .toList();
+  Future<void> prepareFolders() async {
+    try {
+      // Create base cache directory
+      await Directory(basePath).create(recursive: true);
+
+      // Create input and output directories
+      final inputPath = path.join(basePath, inputFolder);
+      final outputPath = path.join(basePath, outputFolder);
+
+      await Future.wait([
+        Directory(inputPath).create(recursive: true),
+        Directory(outputPath).create(recursive: true),
+      ]);
+
+      if (kDebugMode) {
+        print('Cache directory: $basePath');
+        print('Input directory: $inputPath');
+        print('Output directory: $outputPath');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error preparing folders: $e');
+      }
+      rethrow;
+    }
+  }
+
+  Future<List<String>> findImages() async {
+    try {
+      final inputPath = path.join(basePath, inputFolder);
+
+      if (!Directory(inputPath).existsSync()) {
+        if (kDebugMode) {
+          print('Input directory not found: $inputPath');
+        }
+        return [];
+      }
+
+      final images = Directory(inputPath)
+          .listSync()
+          .where((entity) =>
+              entity is File &&
+              ['.jpg', '.jpeg', '.png']
+                  .contains(path.extension(entity.path).toLowerCase()))
+          .map((entity) => entity.path)
+          .toList();
+
+      if (kDebugMode) {
+        print('Found ${images.length} images in $inputPath');
+      }
+
+      return images;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error finding images: $e');
+      }
+      return [];
+    }
   }
 
   cv2.Mat opencvResize(cv2.Mat image, double ratio) {
@@ -131,11 +219,16 @@ class ReceiptRecognizer {
     // Convert to grayscale
     cv2.Mat gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY);
 
-    // Create and apply sharpening kernel
-    cv2.Mat kernel = cv2.Mat.create(rows: 3, cols: 3);
-    kernel.setTo(cv2.Scalar.all(-1));
-    kernel.set(1, 1, cv2.Scalar.all(9));
+    // Create sharpening kernel using proper initialization
+    List<List<double>> kernelData = [
+      [-1.0, -1.0, -1.0],
+      [-1.0, 9.0, -1.0],
+      [-1.0, -1.0, -1.0]
+    ];
+    cv2.Mat kernel =
+        cv2.Mat.from2DList(kernelData, cv2.MatType.CV_64F as cv2.MatType);
 
+    // Apply sharpening filter
     cv2.Mat sharpen = cv2.filter2D(gray, -1, kernel);
 
     // Apply threshold
@@ -180,8 +273,34 @@ class ReceiptRecognizer {
         .toList());
   }
 
-  void processReceipts() {
-    var images = findImages(inputFolder);
+  Future<String> saveToOutput(cv2.Mat image, String originalFileName,
+      {String? suffix}) async {
+    try {
+      final fileName = suffix != null
+          ? '${path.basenameWithoutExtension(originalFileName)}_$suffix${path.extension(originalFileName)}'
+          : path.basename(originalFileName);
+
+      final outputPath = path.join(basePath, outputFolder, fileName);
+
+      await Directory(path.dirname(outputPath)).create(recursive: true);
+
+      cv2.imwrite(outputPath, image);
+
+      if (kDebugMode) {
+        print('Saved image to: $outputPath');
+      }
+
+      return outputPath;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error saving image: $e');
+      }
+      rethrow;
+    }
+  }
+
+  void processReceipts() async {
+    var images = await findImages();
     for (var imagePath in images) {
       try {
         // Read image
@@ -245,23 +364,49 @@ class ReceiptRecognizer {
             original, contourToRect(receiptContour!, resizeRatio));
 
         // Apply black and white scanner effect
-        var result = bwScanner(scanned);
+        var result = cv2.rotate(
+            cv2.flip(bwScanner(scanned), 1), cv2.ROTATE_90_COUNTERCLOCKWISE);
 
-        // Save result
-        var outputPath = path.join(outputFolder, path.basename(imagePath));
-        cv2.imwrite(outputPath, result);
+        final savedPath = await saveToOutput(result, path.basename(imagePath),
+            suffix: 'processed');
+        if (kDebugMode) {
+          print('Saved processed image to: $savedPath');
+        }
       } catch (e) {
         if (kDebugMode) {
           print('Error processing $imagePath: $e');
         }
-        continue;
       }
     }
   }
-
-  
 }
-void main() {
-    ReceiptRecognizer recognizer = ReceiptRecognizer();
-    recognizer.processReceipts();
+
+Future<void> preworkImage() async {
+  final recognizer = await ReceiptRecognizer.create();
+  try {
+    // List all assets from pubspec.yaml
+    final manifestContent = await rootBundle.loadString('AssetManifest.json');
+    final Map<String, dynamic> manifestMap = json.decode(manifestContent);
+
+    // Filter image files from assets
+    final imageAssets = manifestMap.keys
+        .where((String key) =>
+            key.startsWith('assets/images/') &&
+            ['.jpg', '.jpeg', '.png']
+                .contains(path.extension(key).toLowerCase()))
+        .toList();
+
+    // Copy all found images
+    await recognizer.copyImagesToSourceDir(imageAssets);
+
+    if (kDebugMode) {
+      print('Imported ${imageAssets.length} images from assets');
+    }
+  } catch (e) {
+    if (kDebugMode) {
+      print('Error importing assets: $e');
+    }
+    rethrow;
   }
+  recognizer.processReceipts();
+}
