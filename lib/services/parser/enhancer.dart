@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:frienance/services/parser/receipt_recognizer.dart';
 import 'package:frienance/utils/image_btw_mat_converter.dart';
@@ -11,6 +12,7 @@ import 'package:opencv_dart/opencv_dart.dart' as cv2;
 import 'package:path/path.dart' as path;
 import 'package:image/image.dart' as img;
 import 'package:google_ml_kit/google_ml_kit.dart';
+import 'package:exif/exif.dart';
 
 //
 typedef Image = img.Image;
@@ -19,7 +21,28 @@ typedef Mat = cv2.Mat;
 
 const String ORANGE = '\x1B[33m';
 const String RESET = '\x1B[0m';
+//
 
+// Enum for EXIF orientation values
+enum ExifOrientation {
+  normal(1),
+  flipHorizontal(2),
+  rotate180(3),
+  flipVertical(4),
+  transpose(5),
+  rotate90(6),
+  transverse(7),
+  rotate270(8);
+
+  const ExifOrientation(this.value);
+  final int value;
+
+  factory ExifOrientation.fromInt(int value) {
+    return ExifOrientation.values.firstWhere((e) => e.value == value);
+  }
+}
+
+//
 class Enhancer {
   late String basePath;
   final String INPUT_FOLDER =
@@ -70,7 +93,13 @@ class Enhancer {
   }
 
   void rotateImage(String inputFile, String outputFile, {double angle = 90}) {
-    var imageBytes = File(inputFile).readAsBytesSync();
+    final file = File(inputFile);
+    if (!file.existsSync()) {
+      print('Error: Input file not found.');
+      return;
+    }
+
+    final imageBytes = file.readAsBytesSync();
     img.Image? image = img.decodeImage(imageBytes);
 
     if (image == null) {
@@ -78,58 +107,104 @@ class Enhancer {
       return;
     }
 
-    int width = image.width;
-    int height = image.height;
-
-    if (width < height) {
-      angle = 0;
+    // Check orientation based on EXIF data if available
+    final orientation = getExifOrientation(imageBytes);
+    switch (orientation) {
+      // ignore: constant_pattern_never_matches_value_type
+      case ExifOrientation.rotate90:
+        angle = 90;
+        break;
+      // ignore: constant_pattern_never_matches_value_type
+      case ExifOrientation.rotate180:
+        angle = 180;
+        break;
+      // ignore: constant_pattern_never_matches_value_type
+      case ExifOrientation.rotate270:
+        angle = 270;
+        break;
+      default:
+        angle = 0; // Or keep the original angle if needed
     }
-
+  
     print('$ORANGE\t~: $RESET Rotate image by: $angle° $RESET');
 
-    img.Image rotatedImage = img.copyRotate(image, angle: angle);
-
+    final rotatedImage = img.copyRotate(image, angle: angle);
     File(outputFile).writeAsBytesSync(img.encodePng(rotatedImage));
   }
 
-  Mat deskewImage(Mat image, {double delta = 0.5, double limit = 5}) {
-    // Convert the image to grayscale
-    Mat gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY);
-
-    // Apply Otsu's thresholding to create a binary image
-    Mat thresh =
-        cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU).$2;
-
-    List<double> scores = [];
-    List<double> angles = [];
-    for (double angle = -limit; angle <= limit + delta; angle += delta) {
-      angles.add(angle);
-      Mat rotated =
-          imageToMat(img.copyRotate(matToImage(thresh), angle: angle));
-      List<int> histogram = List.filled(rotated.rows, 0);
-      for (int y = 0; y < rotated.rows; y++) {
-        for (int x = 0; x < rotated.cols; x++) {
-          if (rotated.atPixel(y, x)[0] > 0) {
-            histogram[y]++;
-          }
-        }
+// Helper function to get orientation from EXIF data (if available)
+  Future<ExifOrientation?> getExifOrientation(List<int> imageBytes) async {
+    try {
+      final exifData = await readExifFromBytes(imageBytes);
+      final orientationTag = exifData['Orientation'];
+      if (orientationTag != null) {
+        return ExifOrientation.fromInt(int.parse(orientationTag.printable));
       }
-      double score = 0;
-      for (int i = 1; i < histogram.length; i++) {
-        score += pow(histogram[i] - histogram[i - 1], 2);
-      }
-      scores.add(score);
+    } catch (e) {
+      print('Error reading EXIF data: $e');
+    }
+    return null;
+  }
+
+  cv2.Mat deskewImage(cv2.Mat image) {
+    cv2.Mat gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY);
+
+    // Invert colors (optional, if needed)
+    if (cv2.mean(gray).val[0] > 127) {
+      gray = cv2.bitwiseNOT(gray);
     }
 
-    // Find the angle with the highest score
-    double bestAngle = angles[scores.indexOf(scores.reduce(max))];
+    cv2.Mat thresh = cv2
+        .threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        .$2; // Note: [1] for the thresholded image
 
-    // Rotate the image by the best angle
-    var center = cv2.Point2f(image.cols / 2, image.rows / 2);
-    var rotationMatrix = cv2.getRotationMatrix2D(center, bestAngle, 1.0);
-    Mat rotated = cv2.warpAffine(
-        image, rotationMatrix, (image.cols, image.rows),
-        flags: cv2.INTER_CUBIC, borderMode: cv2.BORDER_REPLICATE);
+    // Improve angle calculation using Hough Line Transform
+    cv2.Mat lines = cv2.HoughLinesP(
+        thresh, // The input image (binary image)
+        1, // Distance resolution of the accumulator in pixels.
+        cv2.CV_PI / 180, // Angle resolution of the accumulator in radians.
+        100, // Accumulator threshold parameter. Only lines with more than this number of votes are returned.
+        minLineLength:
+            50, // Minimum line length. Line segments shorter than this are rejected.
+        maxLineGap:
+            10 // Maximum allowed gap between points on the same line to link them.
+        );
+
+    double angle = 0;
+    int count = 0;
+    for (var line in lines.toList()) {
+      double angleTemp =
+          atan2(line[3] - line[1], line[2] - line[0]) * 180 / cv2.CV_PI;
+      if (angleTemp.abs() < 45) {
+        // Consider lines close to horizontal
+        angle += angleTemp;
+        count++;
+      }
+    }
+
+    if (count > 0) {
+      angle /= count;
+    }
+
+    cv2.Point2f center =
+        cv2.Point2f(image.cols / 2, image.rows / 2); // Integer division
+    cv2.Mat rotationMatrix = cv2.getRotationMatrix2D(center, angle, 1.0);
+    cv2.Mat rotated = cv2.Mat.zeros(image.rows, image.cols,
+        cv2.MatType.CV_8UC3); // Create a destination Mat
+    cv2.warpAffine(
+        image, // The input image you want to rotate.
+        rotationMatrix, // The transformation matrix calculated by getRotationMatrix2D.
+        (
+          image.cols,
+          image.rows
+        ), // The size of the output image (width, height).
+        dst:
+            rotated, // The output image (destination) where the rotated image will be stored.
+        flags: cv2
+            .INTER_CUBIC, // Interpolation method (INTER_CUBIC for high-quality resizing).
+        borderMode: cv2
+            .BORDER_REPLICATE // How to handle borders (REPLICATE to repeat edge pixels).
+        );
 
     return rotated;
   }
@@ -143,39 +218,44 @@ class Enhancer {
 
     try {
       final inputImage = InputImage.fromFilePath(inputFile);
-      final textRecognizer =
-          TextRecognizer(script: TextRecognitionScript.latin, );
+      final textRecognizer = TextRecognizer(
+        script: TextRecognitionScript.latin,
+      );
       final RecognizedText recognizedText =
-          await textRecognizer.processImage(inputImage );
+          await textRecognizer.processImage(inputImage);
 
-      List<String> items = [];
       // TODO: Improve text parsing
 
-
-      ///String text = recognizedText.text;
-      // for (TextBlock block in recognizedText.blocks) {
-      //   for (TextLine line in block.lines) {
-      //     text += '${line.text}\n';
-      //   }
-      // }
+      String text = recognizedText.text;
       for (TextBlock block in recognizedText.blocks) {
+        print(block.text);
         for (TextLine line in block.lines) {
-          List<TextElement> elements = line.elements;
-          if (elements.length >= 2) {
-            var lastElement = elements.last;
-            var priceText = lastElement.text;
-            if (RegExp(r'^\$?[\d,.]+$').hasMatch(priceText)) {
-              var itemNameElements = elements.sublist(0, elements.length - 1);
-              var itemName = itemNameElements.map((e) => e.text).join(' ');
-              var price = priceText;
-              items.add('$itemName : $price');
-            }
-          }
+          text += '${line.text}\n';
         }
       }
 
-      final outputText = items.join('\n');
-      await File(outputFile).writeAsString(outputText, encoding: utf8);
+      // List<String> items = [];
+      // for (TextBlock block in recognizedText.blocks) {
+      //   for (TextLine line in block.lines) {
+      //     List<TextElement> elements = line.elements;
+      //     if (elements.length >= 2) {
+      //       var lastElement = elements.last;
+      //       var priceText = lastElement.text;
+      //       if (RegExp(r'^\$?[\d,.]+$').hasMatch(priceText)) {
+      //         var itemNameElements = elements.sublist(0, elements.length - 1);
+      //         var itemName = itemNameElements.map((e) => e.text).join(' ');
+      //         var price = priceText;
+      //         items.add('$itemName : $price');
+      //       }
+      //     }
+      //   }
+      // }
+      ///
+      // final outputText = items.join('\n');
+      await File(outputFile).writeAsString(text, encoding: utf8);
+      if (kDebugMode) {
+        print(text);
+      }
       textRecognizer.close();
     } catch (e) {
       print('$ORANGE\t~: $RESET Error during text recognition: $e $RESET');
@@ -185,18 +265,24 @@ class Enhancer {
 
   img.Image rescaleImage(img.Image image) {
     print('$ORANGE\t~: $RESET Rescale image $RESET');
-    int newWidth = (image.width * 1.2).toInt();
-    int newHeight = (image.height * 1.2).toInt();
-    return img.copyResize(image, width: newWidth, height: newHeight);
+    int newWidth = (image.width * 1.1).toInt();
+    int newHeight = (image.height * 1.1).toInt();
+    return img.copyResize(image,
+        width: newWidth,
+        height: newHeight,
+        interpolation: img.Interpolation.cubic);
   }
 
   img.Image grayscaleImage(img.Image image) {
     print('$ORANGE\t~: $RESET Grayscale image $RESET');
-    return img.grayscale(image); //TODO: Lighten the image
+    img.Image grayscale = img.grayscale(image);
+    img.Image lightened = img.adjustColor(grayscale);
+    return lightened;
   }
 
   Mat removeNoise(cv2.Mat img) {
     var kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 1));
+
     img = cv2.dilate(img, kernel);
     img = cv2.erode(img, kernel);
 
@@ -214,10 +300,11 @@ class Enhancer {
       255,
       cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
       cv2.THRESH_BINARY,
-      31,
-      2,
+      11,
+      1,
     );
-
+    //  var kernel2 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2));
+    // img = cv2.erode(img, kernel2, iterations: 1);
     return img;
   }
 
@@ -226,16 +313,23 @@ class Enhancer {
     List<cv2.Mat> resultPlanes = [];
 
     for (var plane in rgbPlanes) {
-      var dilatedImg =
-          cv2.dilate(plane, cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7)));
-      var bgImg = cv2.medianBlur(dilatedImg, 21);
-      var diffImg = cv2.absDiff(plane, bgImg);
-      diffImg = cv2.subtract(
-        cv2.Mat.fromScalar(
-            diffImg.cols, diffImg.rows, diffImg.type, cv2.Scalar.all(255)),
-        cv2.absDiff(plane, bgImg),
+      var dilatedImg = cv2.dilate(
+        plane,
+        cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7)),
       );
-      resultPlanes.add(diffImg);
+      var bgImg = cv2.medianBlur(dilatedImg, 21);
+      var absDiff = cv2.absDiff(plane, bgImg);
+
+      // Create a scalar matrix with the same size and type as absDiff
+      var scalarMat = cv2.Mat.create(
+        rows: absDiff.rows,
+        cols: absDiff.cols,
+        type: absDiff.type,
+      );
+      scalarMat.setTo(cv2.Scalar.all(255));
+      // Perform the subtraction
+      var resultImg = cv2.subtract(scalarMat, absDiff);
+      resultPlanes.add(resultImg);
     }
 
     final result = cv2.merge(cv2.VecMat.fromList(resultPlanes));
@@ -247,7 +341,6 @@ class Enhancer {
       bool gaussianBlur = true,
       bool rotate = true}) {
     image = rescaleImage(image);
-
     if (rotate) {
       File(tmpPath).writeAsBytesSync(img.encodePng(image));
       rotateImage(tmpPath, tmpPath);
@@ -255,9 +348,10 @@ class Enhancer {
       image = img.decodeImage(imageBytes)!;
     }
     var temp_image = imageToMat(image);
-    temp_image = deskewImage(temp_image);
-    // temp_image = removeShadows(temp_image);
 
+    temp_image = deskewImage(temp_image);
+
+    temp_image = removeShadows(temp_image);
     if (highContrast) {
       temp_image = imageToMat(grayscaleImage(matToImage(temp_image)));
     }

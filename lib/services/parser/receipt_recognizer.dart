@@ -58,8 +58,8 @@ class ReceiptRecognizer {
 
         if (kDebugMode) {
           print('Copied $fileName to $destination');
+          // break;
         }
-        break;
       }
     } catch (e) {
       if (kDebugMode) {
