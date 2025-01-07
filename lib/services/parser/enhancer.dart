@@ -125,7 +125,7 @@ class Enhancer {
       default:
         angle = 0; // Or keep the original angle if needed
     }
-  
+
     print('$ORANGE\t~: $RESET Rotate image by: $angle° $RESET');
 
     final rotatedImage = img.copyRotate(image, angle: angle);
@@ -158,16 +158,15 @@ class Enhancer {
         .threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         .$2; // Note: [1] for the thresholded image
 
-    // Improve angle calculation using Hough Line Transform
-    cv2.Mat lines = cv2.HoughLinesP(
-        thresh, // The input image (binary image)
-        1, // Distance resolution of the accumulator in pixels.
-        cv2.CV_PI / 180, // Angle resolution of the accumulator in radians.
-        100, // Accumulator threshold parameter. Only lines with more than this number of votes are returned.
-        minLineLength:
-            50, // Minimum line length. Line segments shorter than this are rejected.
-        maxLineGap:
-            10 // Maximum allowed gap between points on the same line to link them.
+    // 1. Morphological closing to fill small gaps
+    var closeKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 1));
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, closeKernel);
+
+    // 2. Adjust minLineLength and maxLineGap
+    cv2.Mat lines = cv2.HoughLinesP(thresh, 1, cv2.CV_PI / 180,
+        50, // Lower threshold to detect lines with fewer votes
+        minLineLength: 20,
+        maxLineGap: 50 // Increase to allow larger breaks
         );
 
     double angle = 0;
@@ -224,38 +223,30 @@ class Enhancer {
       final RecognizedText recognizedText =
           await textRecognizer.processImage(inputImage);
 
-      // TODO: Improve text parsing
+      String text = "";
 
-      String text = recognizedText.text;
-      for (TextBlock block in recognizedText.blocks) {
-        print(block.text);
-        for (TextLine line in block.lines) {
-          text += '${line.text}\n';
+      for (var block in clusterHorizontalLines(recognizedText.blocks)) {
+        String temp = "";
+        for (TextBlock j in block) {
+          for (TextLine line in j.lines) {
+            temp += '${line.text}\n';
+          }
         }
+        text += '$temp\n';
       }
 
-      // List<String> items = [];
-      // for (TextBlock block in recognizedText.blocks) {
-      //   for (TextLine line in block.lines) {
-      //     List<TextElement> elements = line.elements;
-      //     if (elements.length >= 2) {
-      //       var lastElement = elements.last;
-      //       var priceText = lastElement.text;
-      //       if (RegExp(r'^\$?[\d,.]+$').hasMatch(priceText)) {
-      //         var itemNameElements = elements.sublist(0, elements.length - 1);
-      //         var itemName = itemNameElements.map((e) => e.text).join(' ');
-      //         var price = priceText;
-      //         items.add('$itemName : $price');
-      //       }
-      //     }
-      //   }
-      // }
-      ///
-      // final outputText = items.join('\n');
       await File(outputFile).writeAsString(text, encoding: utf8);
       if (kDebugMode) {
         print(text);
       }
+
+      // Create contours folder and save contoured image
+      final contoursFolder = Directory(path.join(basePath, 'with_contours'));
+      contoursFolder.createSync(recursive: true);
+      final contourOutput =
+          path.join(contoursFolder.path, path.basename(inputFile));
+      await drawContoursForTextBlocks(inputFile, recognizedText, contourOutput);
+
       textRecognizer.close();
     } catch (e) {
       print('$ORANGE\t~: $RESET Error during text recognition: $e $RESET');
@@ -263,10 +254,79 @@ class Enhancer {
     }
   }
 
+  List<List<TextBlock>> clusterHorizontalLines(List<TextBlock> blocks,
+      {int k = 10}) {
+    // 1. Extract vertical center points of each block
+    List<cv2.Point2f> points = blocks
+        .map((block) => cv2.Point2f(0, block.boundingBox.center.dy))
+        .toList(); // Use cv2.Point
+
+    // 2. Prepare data for K-means
+    cv2.Mat data = cv2.Mat.fromList(
+        points.length,
+        1,
+        cv2.MatType.CV_32F as cv2.MatType,
+        points
+            .map((p) => p.y.toDouble())
+            .toList()); // Create a cv2.Mat from the y-coordinates
+
+    // 3. Apply K-means clustering
+    cv2.Mat labels =
+        cv2.Mat.zeros(points.length, 1, cv2.MatType.CV_32F as cv2.MatType);
+    cv2.Mat centers = cv2.Mat.zeros(k, 1, cv2.MatType.CV_32F as cv2.MatType);
+
+    cv2.kmeans(
+        data,
+        k,
+        labels,
+        (
+          cv2.TERM_EPS + cv2.TERM_MAX_ITER,
+          30,
+          0.1,
+        ),
+        10,
+        cv2.KMEANS_PP_CENTERS,
+        centers: centers);
+
+    // 4. Group blocks based on clusters
+    List<List<TextBlock>> clusteredLines = List.generate(k, (_) => []);
+    for (int i = 0; i < blocks.length; i++) {
+      int clusterIndex =
+          labels.atNum(i, 0).toInt(); // Get cluster index from labels matrix
+      clusteredLines[clusterIndex].add(blocks[i]);
+    }
+
+    clusteredLines = mergeCloseClusters(clusteredLines, centers,
+        threshold: 5); // Adjust threshold as needed
+
+    return clusteredLines;
+  }
+
+// Helper function to merge close clusters
+  List<List<TextBlock>> mergeCloseClusters(
+      List<List<TextBlock>> clusteredLines, cv2.Mat centers,
+      {double threshold = 20}) {
+    for (int i = 0; i < centers.rows - 1; i++) {
+      for (int j = i + 1; j < centers.rows; j++) {
+        double distance =
+            (centers.atNum(i, 0).toDouble() - centers.atNum(j, 0).toDouble())
+                .abs();
+        if (distance < threshold) {
+          // Merge cluster j into cluster i
+          clusteredLines[i].addAll(clusteredLines[j]);
+          clusteredLines[j].clear();
+        }
+      }
+    }
+    // Remove empty clusters
+    clusteredLines.removeWhere((cluster) => cluster.isEmpty);
+    return clusteredLines;
+  }
+
   img.Image rescaleImage(img.Image image) {
     print('$ORANGE\t~: $RESET Rescale image $RESET');
-    int newWidth = (image.width * 1.1).toInt();
-    int newHeight = (image.height * 1.1).toInt();
+    int newWidth = (image.width * 1.5).toInt();
+    int newHeight = (image.height * 1.5).toInt();
     return img.copyResize(image,
         width: newWidth,
         height: newHeight,
@@ -389,6 +449,31 @@ class Enhancer {
     await runMLKitTextRecognition(tmpPath, outputPath);
 
     print('Parsed text saved at: $outputPath');
+  }
+
+  Future<void> drawContoursForTextBlocks(
+    String inputFile,
+    RecognizedText recognizedText,
+    String outputFile,
+  ) async {
+    final file = File(inputFile);
+    if (!file.existsSync()) return;
+    img.Image? image = img.decodeImage(file.readAsBytesSync());
+    if (image == null) return;
+
+    for (final block in recognizedText.blocks) {
+      final rect = block.boundingBox;
+      img.drawRect(
+        image,
+        x1: rect.left.toInt(),
+        y1: rect.top.toInt(),
+        x2: (rect.left + rect.width).toInt(),
+        y2: (rect.top + rect.height).toInt(),
+        color: img.ColorRgb8(255, 0, 0),
+        thickness: 2,
+      );
+    }
+    File(outputFile).writeAsBytesSync(img.encodePng(image));
   }
 }
 
