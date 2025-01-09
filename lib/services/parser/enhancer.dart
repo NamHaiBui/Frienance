@@ -225,7 +225,7 @@ class Enhancer {
 
       String text = "";
 
-      for (var block in clusterHorizontalLines(recognizedText.blocks)) {
+      for (var block in clusterVerticalLines(recognizedText.blocks)) {
         String temp = "";
         for (TextBlock j in block) {
           for (TextLine line in j.lines) {
@@ -245,7 +245,7 @@ class Enhancer {
       contoursFolder.createSync(recursive: true);
       final contourOutput =
           path.join(contoursFolder.path, path.basename(inputFile));
-      await drawContoursForTextBlocks(inputFile, recognizedText, contourOutput);
+      await drawContoursForTextBlocks(inputFile, recognizedText.blocks, contourOutput);
 
       textRecognizer.close();
     } catch (e) {
@@ -253,75 +253,63 @@ class Enhancer {
       rethrow;
     }
   }
+List<List<TextBlock>> clusterVerticalLines(List<TextBlock> blocks, {int k = 10}) {
+  // 1. Extract horizontal center points of each block
+  List<cv2.Point2f> points = blocks
+      .map((block) => cv2.Point2f(block.boundingBox.center.dx, 0))
+      .toList();
 
-  List<List<TextBlock>> clusterHorizontalLines(List<TextBlock> blocks,
-      {int k = 10}) {
-    // 1. Extract vertical center points of each block
-    List<cv2.Point2f> points = blocks
-        .map((block) => cv2.Point2f(0, block.boundingBox.center.dy))
-        .toList(); // Use cv2.Point
+  // 2. Prepare data for K-means
+  cv2.Mat data = cv2.Mat.fromList(
+    points.length,
+    1,
+    cv2.MatType.CV_32F as cv2.MatType,
+    points.map((p) => p.x.toDouble()).toList(),
+  );
 
-    // 2. Prepare data for K-means
-    cv2.Mat data = cv2.Mat.fromList(
-        points.length,
-        1,
-        cv2.MatType.CV_32F as cv2.MatType,
-        points
-            .map((p) => p.y.toDouble())
-            .toList()); // Create a cv2.Mat from the y-coordinates
+  // 3. Apply K-means clustering
+  cv2.Mat labels =
+      cv2.Mat.zeros(points.length, 1, cv2.MatType.CV_32F as cv2.MatType);
+  cv2.Mat centers =
+      cv2.Mat.zeros(k, 1, cv2.MatType.CV_32F as cv2.MatType);
 
-    // 3. Apply K-means clustering
-    cv2.Mat labels =
-        cv2.Mat.zeros(points.length, 1, cv2.MatType.CV_32F as cv2.MatType);
-    cv2.Mat centers = cv2.Mat.zeros(k, 1, cv2.MatType.CV_32F as cv2.MatType);
+  cv2.kmeans(
+    data,
+    k,
+    labels,
+    (cv2.TERM_EPS + cv2.TERM_MAX_ITER, 30, 0.1),
+    10,
+    cv2.KMEANS_PP_CENTERS,
+    centers: centers,
+  );
 
-    cv2.kmeans(
-        data,
-        k,
-        labels,
-        (
-          cv2.TERM_EPS + cv2.TERM_MAX_ITER,
-          30,
-          0.1,
-        ),
-        10,
-        cv2.KMEANS_PP_CENTERS,
-        centers: centers);
-
-    // 4. Group blocks based on clusters
-    List<List<TextBlock>> clusteredLines = List.generate(k, (_) => []);
-    for (int i = 0; i < blocks.length; i++) {
-      int clusterIndex =
-          labels.atNum(i, 0).toInt(); // Get cluster index from labels matrix
-      clusteredLines[clusterIndex].add(blocks[i]);
-    }
-
-    clusteredLines = mergeCloseClusters(clusteredLines, centers,
-        threshold: 5); // Adjust threshold as needed
-
-    return clusteredLines;
+  // 4. Group blocks based on clusters
+  List<List<TextBlock>> clusteredLines = List.generate(k, (_) => []);
+  for (int i = 0; i < blocks.length; i++) {
+    int clusterIndex = labels.atNum(i, 0).toInt();
+    clusteredLines[clusterIndex].add(blocks[i]);
   }
 
-// Helper function to merge close clusters
-  List<List<TextBlock>> mergeCloseClusters(
-      List<List<TextBlock>> clusteredLines, cv2.Mat centers,
-      {double threshold = 20}) {
-    for (int i = 0; i < centers.rows - 1; i++) {
-      for (int j = i + 1; j < centers.rows; j++) {
-        double distance =
-            (centers.atNum(i, 0).toDouble() - centers.atNum(j, 0).toDouble())
-                .abs();
-        if (distance < threshold) {
-          // Merge cluster j into cluster i
-          clusteredLines[i].addAll(clusteredLines[j]);
-          clusteredLines[j].clear();
-        }
+  clusteredLines = mergeCloseClusters(clusteredLines, centers, threshold: 5);
+  return clusteredLines;
+}
+List<List<TextBlock>> mergeCloseClusters(
+    List<List<TextBlock>> clusteredLines, cv2.Mat centers,
+    {double threshold = 20}) {
+  for (int i = 0; i < centers.rows - 1; i++) {
+    for (int j = i + 1; j < centers.rows; j++) {
+      double distance =
+          (centers.atNum(i, 0).toDouble() - centers.atNum(j, 0).toDouble())
+              .abs();
+      if (distance < threshold) {
+        clusteredLines[i].addAll(clusteredLines[j]);
+        clusteredLines[j].clear();
       }
     }
-    // Remove empty clusters
-    clusteredLines.removeWhere((cluster) => cluster.isEmpty);
-    return clusteredLines;
   }
+  clusteredLines.removeWhere((cluster) => cluster.isEmpty);
+  return clusteredLines;
+}
 
   img.Image rescaleImage(img.Image image) {
     print('$ORANGE\t~: $RESET Rescale image $RESET');
@@ -453,7 +441,7 @@ class Enhancer {
 
   Future<void> drawContoursForTextBlocks(
     String inputFile,
-    RecognizedText recognizedText,
+    List<TextBlock> recognizedTextBlocks,
     String outputFile,
   ) async {
     final file = File(inputFile);
@@ -461,7 +449,7 @@ class Enhancer {
     img.Image? image = img.decodeImage(file.readAsBytesSync());
     if (image == null) return;
 
-    for (final block in recognizedText.blocks) {
+    for (final block in recognizedTextBlocks) {
       final rect = block.boundingBox;
       img.drawRect(
         image,
