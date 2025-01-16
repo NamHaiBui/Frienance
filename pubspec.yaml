@@ -47,6 +47,9 @@ dependencies:
   k_means_cluster: ^0.3.0
   collection: ^1.18.0
   image_picker: ^1.0.4
+  file_picker: ^5.3.1
+  google_generative_ai: ^0.3.0
+  http: ^1.1.0
 
 dev_dependencies:
   flutter_test:

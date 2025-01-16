@@ -99,8 +99,6 @@ class _MyHomePageState extends State<MyHomePage> {
       for (var imageFile in images) {
         img.Image? image = img.decodeImage(imageFile.readAsBytesSync());
         if (image == null) continue;
-
-
       }
     } else {
       // Handle web case

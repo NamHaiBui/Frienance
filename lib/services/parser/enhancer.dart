@@ -229,7 +229,7 @@ class Enhancer {
         String temp = "";
         for (TextBlock j in block) {
           for (TextLine line in j.lines) {
-            temp += '${line.text}\n';
+            temp += '${line.text} , ';
           }
         }
         text += '$temp\n';
