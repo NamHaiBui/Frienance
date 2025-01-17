@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frienance/services/gemini_service.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 
@@ -26,9 +27,9 @@ class HomeScreenState extends State<HomeScreen> {
     try {
       final result = await _geminiService.processReceiptImage(image);
       // Handle the result as needed
-      print('Receipt data: $result');
+      debugPrint('Receipt data: $result');
     } catch (e) {
-      print('Error processing receipt: $e');
+      debugPrint('Error processing receipt: $e');
       // Show error message to user
     }
   }
