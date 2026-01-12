@@ -452,7 +452,7 @@ cv2.Mat processImage(cv2.Mat result) {
             original, receiptContour, resizeRatio);
         // await saveProcessingStep(scanned, fileName, '7_scanned');
         var result = processImage(scanned);
-        await saveProcessingStep(result, fileName, '7_scanned');
+        // await saveProcessingStep(result, fileName, '7_scanned');
         final savedPath = await saveToOutput(result, path.basename(imagePath),
             suffix: 'processed');
           print('Saved processed image to: $savedPath');
