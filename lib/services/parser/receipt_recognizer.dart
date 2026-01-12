@@ -125,115 +125,87 @@ class ReceiptRecognizer {
     return cv2.resize(image, dim, interpolation: cv2.INTER_AREA);
   }
 
-  List<Point> findRectPoints(cv2.VecPoint contour, double resizeRatio) {
-    // Get bounding rectangle coordinates
-    cv2.Rect rect = cv2.boundingRect(contour);
-    int x = rect.x;
-    int y = rect.y;
-    int w = rect.width;
-    int h = rect.height;
-
-    // Create a list of points representing the rectangle
-    var rectPoints = [
-      Point(x.toDouble(), y.toDouble()),
-      Point((x + w).toDouble(), y.toDouble()),
-      Point((x + w).toDouble(), (y + h).toDouble()),
-      Point(x.toDouble(), (y + h).toDouble()),
-    ];
-
-    // Sort the points to ensure correct order (top-left, top-right, bottom-right, bottom-left)
-    rectPoints.sort((a, b) {
-      // Sort by sum of x and y (top-left has the smallest sum, bottom-right the largest)
-      var sumA = a.x + a.y;
-      var sumB = b.x + b.y;
-      if (sumA != sumB) {
-        return sumA.compareTo(sumB);
-      }
-      // If sums are equal, sort by difference of x and y (top-right has the smallest difference, bottom-left the largest)
-      return (a.x - a.y).compareTo(b.x - b.y);
-    });
-
-    // Scale the points back using the resize ratio
-    return rectPoints
-        .map((p) => Point(p.x / resizeRatio, p.y / resizeRatio))
-        .toList();
+  cv2.VecPoint orderPoints(cv2.VecPoint points) {
+    // Order points as: top-left, top-right, bottom-right, bottom-left
+    var pts = points.toList();
+    
+    // Sort by sum (x + y) - smallest is top-left, largest is bottom-right
+    var sums = pts.map((p) => p.x + p.y).toList();
+    var topLeft = pts[sums.indexOf(sums.reduce(min))];
+    var bottomRight = pts[sums.indexOf(sums.reduce(max))];
+    
+    // Sort by difference (y - x) - smallest is top-right, largest is bottom-left
+    var diffs = pts.map((p) => p.y - p.x).toList();
+    var topRight = pts[diffs.indexOf(diffs.reduce(min))];
+    var bottomLeft = pts[diffs.indexOf(diffs.reduce(max))];
+    
+    return cv2.VecPoint.fromList([topLeft, topRight, bottomRight, bottomLeft]);
   }
 
-  cv2.Mat wrapPerspective(cv2.Mat img, cv2.VecPoint rect) {
+  cv2.Mat wrapPerspective(cv2.Mat img, cv2.VecPoint rect, double resizeRatio) {
+    // Scale points back to original image size
+    var scaledRect = cv2.VecPoint.fromList(
+      rect.toList().map((p) => cv2.Point(
+        (p.x / resizeRatio).round(),
+        (p.y / resizeRatio).round()
+      )).toList()
+    );
+    
+    // Order the points correctly
+    var orderedRect = orderPoints(scaledRect);
+    
     // Unpack rectangle points
-    var tl = rect[0];
-    var tr = rect[1];
-    var br = rect[2];
-    var bl = rect[3];
+    var tl = orderedRect[0];
+    var tr = orderedRect[1];
+    var br = orderedRect[2];
+    var bl = orderedRect[3];
 
-    // Calculate width and height
-    double widthA = sqrt(pow(br.x - bl.x, 2) + pow(br.y - bl.y, 2));
+    // Calculate width and height using Euclidean distance
+    double widthA = sqrt(pow(br.x - bl.x, 2) + pow(br.y - bl.y, 2)); 
     double widthB = sqrt(pow(tr.x - tl.x, 2) + pow(tr.y - tl.y, 2));
     double heightA = sqrt(pow(tr.x - br.x, 2) + pow(tr.y - br.y, 2));
     double heightB = sqrt(pow(tl.x - bl.x, 2) + pow(tl.y - bl.y, 2));
 
-    int maxWidth = max(widthA.toInt(), widthB.toInt());
-    int maxHeight = max(heightA.toInt(), heightB.toInt());
+    double maxWidth = max(widthA, widthB);
+    double maxHeight = max(heightA, heightB);
 
     // Create destination points
     List<Point2f> dst = [
       Point2f(0, 0),
-      Point2f(maxWidth - 1, 0),
-      Point2f(maxWidth - 1, maxHeight - 1),
-      Point2f(0, maxHeight - 1),
+      Point2f(maxWidth, 0),
+      Point2f(maxWidth, maxHeight),
+      Point2f(0, maxHeight),
     ];
 
-    // Perform perspective transforcv2.Mation
+    // Perform perspective transformation
     final temp = cv2.getPerspectiveTransform(
-        rect,
+        orderedRect,
         cv2.VecPoint.fromList(
             dst.map((p) => cv2.Point(p.x.toInt(), p.y.toInt())).toList()));
-    return cv2.warpPerspective(img, temp, (maxWidth, maxHeight));
+    return cv2.warpPerspective(img, temp, (maxWidth.toInt(), maxHeight.toInt()));
   }
 
   cv2.VecPoint approximateContour(cv2.VecPoint contour) {
-    double epsilon = 0.01 * cv2.arcLength(contour, true);
-    return cv2.approxPolyDP(contour, epsilon, true);
+    // 1. Get the convex hull to "straighten" the edges
+    var hull = cv2.convexHull(contour); 
+    // Convert mat to cv2.VecPoint 
+    var hullVec = cv2.VecPoint.fromMat(hull);
+    // 2. Then approximate from the hull, not the raw contour
+    double epsilon = 0.01 * cv2.arcLength(hullVec, true); 
+    return cv2.approxPolyDP(hullVec, epsilon, true);
   }
 
   cv2.VecPoint getReceiptContour(List<cv2.VecPoint> contours) {
     for (var contour in contours) {
       var approx = approximateContour(contour);
-      print(approx);
+      
       if (approx.length == 4) {
         return approx;
       }
     }
-
-    return cv2.VecPoint();
+    return cv2.VecPoint(); // Return empty VecPoint if none found
   }
 
-  cv2.Mat bwScanner(cv2.Mat image) {
-    // Convert to grayscale
-    cv2.Mat gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY);
-
-    // Create sharpening kernel using proper initialization
-    List<List<double>> kernelData = [
-      [-1.0, -1.0, -1.0],
-      [-1.0, 9.0, -1.0],
-      [-1.0, -1.0, -1.0]
-    ];
-    cv2.Mat kernel =
-        cv2.Mat.from2DList(kernelData, cv2.MatType.CV_64F as cv2.MatType);
-
-    // Apply sharpening filter
-    cv2.Mat sharpen = cv2.filter2D(gray, -1, kernel);
-
-    // Apply threshold
-    final thresh = cv2.threshold(
-      sharpen,
-      0,
-      255,
-      cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
-    );
-
-    return cv2.bitwiseNOT(thresh.$2);
-  }
 
   cv2.VecPoint contourToRect(cv2.VecPoint contour, double resizeRatio) {
     final boundingRect = cv2.boundingRect(contour);
@@ -322,30 +294,34 @@ class ReceiptRecognizer {
     return dataList.sorted().percentile(p);
   }
 
-  cv2.Mat processImage(cv2.Mat result) {
-    double minval = percentile(result, 4.5);
-    double maxval = percentile(result, 95);
-
-    final cv2.Mat pixvals = result.clone();
-
-    for (int i = 0; i < pixvals.rows; i++) {
-      for (int j = 0; j < pixvals.cols; j++) {
-        num val = pixvals.at(i, j);
-        val = max(minval, min(maxval, val)); // Clip
-        pixvals.set(i, j, val); 
-      }
-    }
-
-    for (int i = 0; i < pixvals.rows; i++) {
-      for (int j = 0; j < pixvals.cols; j++) {
-        num val = pixvals.at(i, j);
-        val = (val - minval) / (maxval - minval) * 255;
-        pixvals.set(i, j, val);
-      }
-    }
-
-    return cv2.rotate(pixvals, cv2.ROTATE_180);
+cv2.Mat processImage(cv2.Mat result) {
+  // Ensure we are working with Grayscale
+  if (result.channels > 1) {
+    result = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY);
   }
+
+  double minval = percentile(result, 4.5);
+  double maxval = percentile(result, 95);
+
+  // 1. Clip the values using OpenCV's thresholding/clipping
+  // Anything below minval becomes minval; anything above maxval becomes maxval
+  cv2.Mat clipped = result.clone();
+  cv2.threshold(clipped, maxval, maxval, cv2.THRESH_TRUNC); // Cap at max
+  cv2.threshold(clipped, minval, minval, cv2.THRESH_TOZERO_INV); // This is complex manually
+
+  // 2. USE NORMALIZE - This replaces your second loop entirely and is more robust
+  cv2.Mat normalized = cv2.Mat.empty();
+  cv2.normalize(
+    clipped, 
+    normalized, 
+    alpha: 0, 
+    beta: 255, 
+    normType: cv2.NORM_MINMAX, 
+    dtype: cv2.MatType.CV_8U
+  );
+
+  return normalized;
+}
 
   Future<void> saveProcessingStep(
       cv2.Mat image, String originalFileName, String step) async {
@@ -367,16 +343,17 @@ class ReceiptRecognizer {
 
         // Process image
         cv2.Mat gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY);
-        await saveProcessingStep(gray, fileName, '1_grayscale');
+        // await saveProcessingStep(gray, fileName, '1_grayscale');
 
-        cv2.Mat blurred = cv2.gaussianBlur(gray, (5, 5), 0);
-        await saveProcessingStep(blurred, fileName, '2_blurred');
+        // cv2.Mat blurred = cv2.gaussianBlur(gray, (5, 5), 0);
+        cv2.Mat filtered = cv2.bilateralFilter(gray, 9, 75, 75);
+        // await saveProcessingStep(filtered, fileName, '2_filtered');
 
         cv2.Mat rectKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9));
 
-        cv2.Mat dilated = cv2.dilate(blurred, rectKernel);
-        await saveProcessingStep(dilated, fileName, '3_dilated');
 
+        cv2.Mat dilated = cv2.dilate(filtered, rectKernel);
+        // await saveProcessingStep(dilated, fileName, '3_dilated');
         cv2.Mat closing = cv2.morphologyEx(
           dilated,
           cv2.MORPH_CLOSE,
@@ -385,10 +362,10 @@ class ReceiptRecognizer {
           iterations: 1,
           borderType: cv2.BORDER_REPLICATE,
         );
-        await saveProcessingStep(closing, fileName, '4_closing');
+        // await saveProcessingStep(closing, fileName, '4_closing');
 
         cv2.Mat edged = cv2.canny(closing, 50, 125);
-        await saveProcessingStep(edged, fileName, '5_edged');
+        // await saveProcessingStep(edged, fileName, '5_edged');
 
         // Find contours
         var (contours, hierarchy) = cv2.findContours(
@@ -407,19 +384,43 @@ class ReceiptRecognizer {
                 e.map((e2) => cv2.Point(e2.x.toInt(), e2.y.toInt())).toList())
             .toList());
 
-        cv2.Mat contoursImage = original.clone();
-        cv2.drawContours(
-          contoursImage,
-          cv2.VecVecPoint.fromVecPoint(sortedContours.first),
-          -1,
-          cv2.Scalar.green,
-          thickness: 3,
-        );
-        await saveProcessingStep(contoursImage, fileName, '6_largest_contours');
+        // cv2.Mat contoursImage = original.clone();
+        // cv2.drawContours(
+        //   contoursImage,
+        //   cv2.VecVecPoint.fromVecPoint(sortedContours.first),
+        //   -1,
+        //   cv2.Scalar.green,
+        //   thickness: 3,
+        // );
+        // await saveProcessingStep(contoursImage, fileName, '6_largest_contours');
         // Sort contours by area
 
-        var largestContours = sortedContours.take(5).toList();
-        // print(largestContours);
+        var largestContours = sortedContours.take(10).toList(); // Take top 10 largest contours
+        
+        // // Draw approximated contours for visualization
+        // cv2.Mat approxImage = original.clone();
+        // for (var contour in largestContours) {
+        //   var approx = approximateContour(contour);
+        //   cv2.drawContours(
+        //     approxImage,
+        //     cv2.VecVecPoint.fromVecPoint(approx),
+        //     -1,
+        //     cv2.Scalar.blue,
+        //     thickness: 3,
+        //   );
+        //   // Draw corner points in red
+        //   for (var point in approx.toList()) {
+        //     cv2.circle(
+        //       approxImage,
+        //       point,
+        //       5,
+        //       cv2.Scalar.red,
+        //       thickness: -1,
+        //     );
+        //   }
+        // }
+        // await saveProcessingStep(approxImage, fileName, '7_approximated_contours');
+        
         var receiptContour = getReceiptContour(largestContours);
         if (receiptContour.length != 4) {
           if (kDebugMode) {
@@ -427,11 +428,31 @@ class ReceiptRecognizer {
           }
           continue;
         }
-
+        // var finalContour = original.clone();
+        //   cv2.drawContours(
+        //     finalContour,
+        //     cv2.VecVecPoint.fromVecPoint(receiptContour),
+        //     -1,
+        //     cv2.Scalar.green,
+        //     thickness: 3,
+        //   );
+        //   // Draw corner points in red
+        //   for (var point in receiptContour.toList()) {
+        //     cv2.circle(
+        //       finalContour,
+        //       point,
+        //       5,
+        //       cv2.Scalar.red,
+        //       thickness: -1,
+        //     );
+        //   }
+        
+        // await saveProcessingStep(finalContour, fileName, '7_final_contour');
         var scanned = wrapPerspective(
-            original, contourToRect(receiptContour, resizeRatio));
-        await saveProcessingStep(scanned, fileName, '7_largest_contours');
+            original, receiptContour, resizeRatio);
+        // await saveProcessingStep(scanned, fileName, '7_scanned');
         var result = processImage(scanned);
+        await saveProcessingStep(result, fileName, '7_scanned');
         final savedPath = await saveToOutput(result, path.basename(imagePath),
             suffix: 'processed');
           print('Saved processed image to: $savedPath');
