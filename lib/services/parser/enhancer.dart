@@ -46,7 +46,7 @@ enum ExifOrientation {
 class Enhancer {
   late String basePath;
   final String INPUT_FOLDER =
-      "2_temp_img"; // Matches ReceiptRecognizer's outputFolder
+      "2_temp_img"; 
   final String OUTPUT_FOLDER = "output";
   final String TMP_FOLDER = "temp";
 
@@ -236,9 +236,6 @@ class Enhancer {
       }
 
       await File(outputFile).writeAsString(text, encoding: utf8);
-      if (kDebugMode) {
-        print(text);
-      }
 
       // Create contours folder and save contoured image
       final contoursFolder = Directory(path.join(basePath, 'with_contours'));

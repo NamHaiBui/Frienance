@@ -1,4 +1,28 @@
 {
+    "markets": {
+      "default": ["store", "market", "shop"],
+      "metro": ["metro"]
+    },
+    "sum_keys": [
+      "Total",
+      "total amount",
+      "amount due",
+      "amount",
+      "due",
+      "total due", 
+      "total amount due",
+      "total price",
+      "total cost",
+      "totals",
+      "sum",
+      "Sums",
+      "Sum",
+      "sums", 
+      "Totals",
+      "Sub Total",
+      "Sales Tax",
+      "Tip Suggestions"
+    ],
     "total_terms": [
       "Total",
       "total amount",

@@ -1,5 +1,0 @@
-Restaurant
-Gas Station
-Uber
-Lyft
-Supermarket

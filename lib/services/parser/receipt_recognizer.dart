@@ -1,14 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:frienance/utils/mat_extensions.dart';
 import 'package:path/path.dart' as path;
 import 'package:opencv_dart/opencv_dart.dart' as cv2;
-import 'package:path_provider/path_provider.dart';
 import 'package:collection/collection.dart';
+
+// Debug mode flag for pure Dart execution
+const bool kDebugMode = bool.fromEnvironment('dart.vm.product') == false;
 
 typedef Point2f = cv2.Point2f;
 
@@ -18,7 +17,6 @@ class ReceiptRecognizer {
   final String outputFolder = "2_temp_img";
 
   static Future<ReceiptRecognizer> create() async {
-    WidgetsFlutterBinding.ensureInitialized();
     final instance = ReceiptRecognizer._();
     await instance._init();
     return instance;
@@ -27,9 +25,8 @@ class ReceiptRecognizer {
   ReceiptRecognizer._();
 
   Future<void> _init() async {
-    // Use application documents directory
-    final documentsDirectory = await getApplicationDocumentsDirectory();
-    basePath = path.join(documentsDirectory.path, 'cache');
+    // Use current working directory for pure Dart execution
+    basePath = path.join(Directory.current.path, 'lib', 'cache');
 
     await prepareFolders();
   }
@@ -43,17 +40,14 @@ class ReceiptRecognizer {
         final fileName = path.basename(imagePath);
         final destination = path.join(sourceDir.path, fileName);
 
-        // Get asset from app bundle
-        final byteData = await rootBundle.load('assets/images/$fileName');
-        final buffer = byteData.buffer;
+        // Read directly from file system
+        // Read directly from file system
+        final bytes = await File(imagePath).readAsBytes();
 
-        // Write to emulator storage
-        await File(destination).writeAsBytes(
-            buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes));
+        await File(destination).writeAsBytes(bytes);
 
         if (kDebugMode) {
           print('Copied $fileName to $destination');
-          // break;
         }
       }
     } catch (e) {
@@ -205,15 +199,8 @@ class ReceiptRecognizer {
   cv2.VecPoint getReceiptContour(List<cv2.VecPoint> contours) {
     for (var contour in contours) {
       var approx = approximateContour(contour);
+      print(approx);
       if (approx.length == 4) {
-        return approx;
-      } else {
-        var rect = cv2.minAreaRect(contour);
-        var box = cv2.boxPoints(rect);
-
-        // box = cv2.VecPoint.fromList(
-        //   box.map((p) => cv2.Point(p.x.toInt(), p.y.toInt())).toList(),
-        // );
         return approx;
       }
     }
@@ -339,19 +326,16 @@ class ReceiptRecognizer {
     double minval = percentile(result, 4.5);
     double maxval = percentile(result, 95);
 
-    cv2.Mat pixvals = result.clone();
-
-    pixvals = result;
+    final cv2.Mat pixvals = result.clone();
 
     for (int i = 0; i < pixvals.rows; i++) {
       for (int j = 0; j < pixvals.cols; j++) {
         num val = pixvals.at(i, j);
         val = max(minval, min(maxval, val)); // Clip
-        pixvals.set(i, j, val); // Assuming you have a put method
+        pixvals.set(i, j, val); 
       }
     }
 
-    // Normalize the pixel values (example using manual looping)
     for (int i = 0; i < pixvals.rows; i++) {
       for (int j = 0; j < pixvals.cols; j++) {
         num val = pixvals.at(i, j);
@@ -359,9 +343,8 @@ class ReceiptRecognizer {
         pixvals.set(i, j, val);
       }
     }
-    cv2.Mat rotatedResult = cv2.rotate(pixvals, cv2.ROTATE_180);
 
-    return pixvals;
+    return cv2.rotate(pixvals, cv2.ROTATE_180);
   }
 
   Future<void> saveProcessingStep(
@@ -369,13 +352,13 @@ class ReceiptRecognizer {
     await saveToOutput(image, originalFileName, suffix: 'step_$step');
   }
 
-  void processReceipts() async {
+  void processReceipts(String fileName) async {
     var images = await findImages();
     for (var imagePath in images) {
       try {
+        var fileName = path.basename(imagePath);
         // Read image
         cv2.Mat image = cv2.imread(imagePath);
-        String fileName = path.basename(imagePath);
         double resizeRatio = 1024 / image.shape[0];
         cv2.Mat original = image.clone();
 
@@ -384,15 +367,15 @@ class ReceiptRecognizer {
 
         // Process image
         cv2.Mat gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY);
-        // await saveProcessingStep(gray, fileName, '1_grayscale');
+        await saveProcessingStep(gray, fileName, '1_grayscale');
 
         cv2.Mat blurred = cv2.gaussianBlur(gray, (5, 5), 0);
-        // await saveProcessingStep(blurred, fileName, '2_blurred');
+        await saveProcessingStep(blurred, fileName, '2_blurred');
 
         cv2.Mat rectKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9));
 
         cv2.Mat dilated = cv2.dilate(blurred, rectKernel);
-        // await saveProcessingStep(dilated, fileName, '3_dilated');
+        await saveProcessingStep(dilated, fileName, '3_dilated');
 
         cv2.Mat closing = cv2.morphologyEx(
           dilated,
@@ -402,10 +385,10 @@ class ReceiptRecognizer {
           iterations: 1,
           borderType: cv2.BORDER_REPLICATE,
         );
-        // await saveProcessingStep(closing, fileName, '4_closing');
+        await saveProcessingStep(closing, fileName, '4_closing');
 
         cv2.Mat edged = cv2.canny(closing, 50, 125);
-        // await saveProcessingStep(edged, fileName, '5_edged');
+        await saveProcessingStep(edged, fileName, '5_edged');
 
         // Find contours
         var (contours, hierarchy) = cv2.findContours(
@@ -432,155 +415,61 @@ class ReceiptRecognizer {
           cv2.Scalar.green,
           thickness: 3,
         );
-        // await saveProcessingStep(contoursImage, fileName, '6_largest_contours');
+        await saveProcessingStep(contoursImage, fileName, '6_largest_contours');
         // Sort contours by area
 
         var largestContours = sortedContours.take(5).toList();
-
+        // print(largestContours);
         var receiptContour = getReceiptContour(largestContours);
-
-        if (receiptContour == null) {
+        if (receiptContour.length != 4) {
           if (kDebugMode) {
-            print('No receipt found in: $imagePath');
-            continue;
+            print('No 4-point receipt contour found in: $imagePath');
           }
+          continue;
         }
 
         var scanned = wrapPerspective(
             original, contourToRect(receiptContour, resizeRatio));
-        // await saveProcessingStep(scanned, fileName, '7_largest_contours');
+        await saveProcessingStep(scanned, fileName, '7_largest_contours');
         var result = processImage(scanned);
         final savedPath = await saveToOutput(result, path.basename(imagePath),
             suffix: 'processed');
-        if (kDebugMode) {
           print('Saved processed image to: $savedPath');
-        }
       } catch (e) {
-        if (kDebugMode) {
           print('Error processing $imagePath: $e');
-        }
       }
     }
   }
 
-  Future<void> processIndividualImage(String srcImagePath) async {
-    try {
-      // Read image
-      cv2.Mat image = cv2.imread(srcImagePath);
-      String fileName = path.basename(srcImagePath);
-      double resizeRatio = 1024 / image.shape[0];
-      cv2.Mat original = image.clone();
-
-      // Resize image
-      image = opencvResize(image, resizeRatio);
-
-      // Process image
-      cv2.Mat gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY);
-      await saveProcessingStep(gray, fileName, '1_grayscale');
-
-      cv2.Mat blurred = cv2.gaussianBlur(gray, (5, 5), 0);
-      await saveProcessingStep(blurred, fileName, '2_blurred');
-
-      cv2.Mat rectKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9));
-
-      cv2.Mat dilated = cv2.dilate(blurred, rectKernel);
-      await saveProcessingStep(dilated, fileName, '3_dilated');
-
-      cv2.Mat closing = cv2.morphologyEx(
-        dilated,
-        cv2.MORPH_CLOSE,
-        rectKernel,
-        anchor: cv2.Point(-1, -1),
-        iterations: 1,
-        borderType: cv2.BORDER_REPLICATE,
-      );
-      cv2.Mat kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2));
-      closing = cv2.erode(closing, kernel);
-      await saveProcessingStep(closing, fileName, '4_closing');
-
-      cv2.Mat edged = cv2.canny(dilated, 50, 125);
-      await saveProcessingStep(edged, fileName, '5_edged');
-
-      // Find contours
-      var (contours, hierarchy) = cv2.findContours(
-        edged,
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_SIMPLE,
-      );
-      cv2.Mat contoursImage = original.clone();
-      cv2.drawContours(
-        contoursImage,
-        contours,
-        -1,
-        cv2.Scalar.green,
-        thickness: 3,
-      );
-      cv2.Mat cropRegion(cv2.Mat src, int offset) {
-        int croppedWidth = src.width - offset * 2;
-        int croppedHeight = src.height - offset * 2;
-        cv2.Mat output = cv2.Mat.zeros(croppedHeight, croppedWidth, src.type);
-        for (int y = 0; y < croppedHeight; y++) {
-          for (int x = 0; x < croppedWidth; x++) {
-            output.set(y, x, src.at(y + offset, x + offset));
-          }
-        }
-        return output;
-      }
-
-      // After closing/erosion steps:
-      int offset = 5;
-      cv2.Mat cropped = cropRegion(closing, offset);
-      await saveProcessingStep(closing, fileName, '6_largest_contours');
-      // Sort contours by area
-      contours.toList().sort((a, b) {
-        double areaA = cv2.contourArea(a);
-        double areaB = cv2.contourArea(b);
-        return areaB.compareTo(areaA);
-      });
-
-      var largestContours = contours.take(10).toList();
-      // if (largestContours.isNotEmpty) {
-      //   largestContours.removeAt(0);
-      // }
-      var receiptContour = getReceiptContour(largestContours);
-
-      var scanned =
-          wrapPerspective(original, contourToRect(receiptContour, resizeRatio));
-
-      var result = processImage(scanned);
-      final savedPath = await saveToOutput(result, path.basename(srcImagePath),
-          suffix: 'processed');
-      if (kDebugMode) {
-        print('Saved processed image to: $savedPath');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error processing $srcImagePath: $e');
-      }
-    }
-  }
 }
 
 Future<void> preworkImage() async {
   final recognizer = await ReceiptRecognizer.create();
   try {
-    // List all assets from pubspec.yaml
-    final manifestContent = await rootBundle.loadString('AssetManifest.json');
-    final Map<String, dynamic> manifestMap = json.decode(manifestContent);
+    List<String> imageAssets = [];
 
-    // Filter image files from assets
-    final imageAssets = manifestMap.keys
-        .where((String key) =>
-            key.startsWith('assets/images/') &&
-            ['.jpg', '.jpeg', '.png']
-                .contains(path.extension(key).toLowerCase()))
-        .toList();
+    // Load images from assets/images directory (pure Dart approach)
+    final assetsDir = Directory(path.join(Directory.current.path, 'assets', 'images'));
+    if (assetsDir.existsSync()) {
+      imageAssets = assetsDir
+          .listSync(recursive: false)
+          .whereType<File>()
+          .where((f) => ['.jpg', '.jpeg', '.png']
+              .contains(path.extension(f.path).toLowerCase()))
+          .map((f) => f.path)
+          .toList();
+    }
 
-    // Copy all found images
+    if (imageAssets.isEmpty) {
+      throw StateError(
+        'No images found to import. Place images in assets/images/ directory.',
+      );
+    }
+
     await recognizer.copyImagesToSourceDir(imageAssets);
 
     if (kDebugMode) {
-      print('Imported ${imageAssets.length} images from assets');
+      print('Imported ${imageAssets.length} images');
     }
   } catch (e) {
     if (kDebugMode) {
@@ -588,7 +477,7 @@ Future<void> preworkImage() async {
     }
     rethrow;
   }
-  recognizer.processReceipts();
+  recognizer.processReceipts('');
 }
 
 void main() {
