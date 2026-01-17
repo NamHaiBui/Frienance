@@ -11,11 +11,12 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
-
+cache/
 # IntelliJ related
 *.iml
 *.ipr
 *.iws
+*.jpg
 .idea/
 
 # The .vscode folder contains launch configuration and tasks you configure in
