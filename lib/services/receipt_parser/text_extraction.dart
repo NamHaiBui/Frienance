@@ -6,11 +6,11 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:frienance/services/receipt_parser/object_extraction.dart';
 import 'package:frienance/utils/image_btw_mat_converter.dart';
+import 'package:frienance/utils/line_list.dart';
 import 'package:opencv_dart/opencv_dart.dart' as cv2;
 import 'package:path/path.dart' as path;
 import 'package:image/image.dart' as img;
 import 'package:google_ml_kit/google_ml_kit.dart';
-import 'package:google_mlkit_document_scanner/google_mlkit_document_scanner.dart';
 //
 typedef Image = img.Image;
 typedef Mat = cv2.Mat;
@@ -27,6 +27,13 @@ class Enhancer {
       "2_temp_img"; 
   final String OUTPUT_FOLDER = "output";
   final String TMP_FOLDER = "temp";
+
+  /// Last line-sweep grouping results (each inner list is a line of text).
+  List<List<String>> lastLineSweepResults = [];
+
+  /// Last line-sweep linked list heads (one per line).
+  List<LineNode?> lastLineSweepNodes = [];
+  final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
 
   static Future<Enhancer> create({required String sharedBasePath}) async {
     final instance = Enhancer._();
@@ -69,32 +76,6 @@ class Enhancer {
     return images;
   }
 
-  Future<String?> scanDocument() async {
-    final scanner = DocumentScanner(
-      options: DocumentScannerOptions(
-        documentFormat: DocumentFormat.jpeg,
-        pageLimit: 1,
-        isGalleryImport: true,
-      ),
-    );
-
-    try {
-      final result = await scanner.scanDocument();
-      if (result.images.isEmpty) {
-        return null;
-      }
-      final uriString = result.images.first;
-      if (uriString.startsWith('file://')) {
-        return Uri.parse(uriString).toFilePath();
-      }
-      return uriString;
-    } catch (_) {
-      return null;
-    } finally {
-      await scanner.close();
-    }
-  }
-
   Future<void> runMLKitTextRecognition(
       String inputFile, String outputFile) async {
     print(
@@ -104,20 +85,22 @@ class Enhancer {
 
     try {
       final inputImage = InputImage.fromFilePath(inputFile);
-      final textRecognizer = TextRecognizer(
-      );
+
       final RecognizedText recognizedText =
           await textRecognizer.processImage(inputImage);
 
-      String text = "";
+      final groupedLines = _groupTextLinesByLineSweep(recognizedText.blocks);
 
-      for (var block in (recognizedText.blocks)) {
-        String temp = "";
-          for (TextLine line in block.lines) {
-            temp += '${line.text} , ';
-          }
-        
-        text += '$temp\n';
+      lastLineSweepResults = groupedLines
+          .map((line) => line.map((entry) => entry.text).toList())
+          .toList();
+
+      lastLineSweepNodes = groupedLines.map(_buildLineList).toList();
+
+      String text = "";
+      for (final head in lastLineSweepNodes) {
+        text += _lineListToText(head);
+        text += '\n';
       }
 
       await File(outputFile).writeAsString(text, encoding: utf8);
@@ -139,8 +122,8 @@ class Enhancer {
 
   img.Image rescaleImage(img.Image image) {
     print('$ORANGE\t~: $RESET Rescale image $RESET');
-    int newWidth = (image.width * 2).toInt();
-    int newHeight = (image.height * 2).toInt();
+    int newWidth = (image.width * 1.25).toInt();
+    int newHeight = (image.height *1.25).toInt();
     return img.copyResize(image,
         width: newWidth,
         height: newHeight,
@@ -152,31 +135,6 @@ class Enhancer {
     img.Image grayscale = img.grayscale(image);
     img.Image lightened = img.adjustColor(grayscale);
     return lightened;
-  }
-
-  Mat removeNoise(cv2.Mat img) {
-    var kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 1));
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY);
-
-    img = cv2.morphologyEx(img,cv2.MORPH_CLOSE, kernel);
-
-    img = cv2
-        .threshold(cv2.gaussianBlur(img, (5, 5), 0), 150, 255,
-            cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        .$2;
-    img = cv2
-        .threshold(cv2.bilateralFilter(img, 5, 75, 75), 0, 255,
-            cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        .$2;
-    img = cv2.adaptiveThreshold(
-      cv2.bilateralFilter(img, 9, 75, 75),
-      255,
-      cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-      cv2.THRESH_BINARY,
-      11,
-      1,
-    );
-    return img;
   }
 
   cv2.Mat removeShadows(cv2.Mat img) {
@@ -212,13 +170,7 @@ class Enhancer {
       bool gaussianBlur = true,
       bool rotate = true}) async {
     image = rescaleImage(image);
-    if (rotate) {
-      File(tmpPath).writeAsBytesSync(img.encodePng(image));
-      var imageBytes = File(tmpPath).readAsBytesSync();
-      image = img.decodeImage(imageBytes)!;
-    }
     var temp_image = imageToMat(image);
-
     temp_image = removeShadows(temp_image);
     if (highContrast) {
       temp_image = imageToMat(grayscaleImage(matToImage(temp_image)));
@@ -237,8 +189,8 @@ class Enhancer {
 
     print('Processing image: $inputPath');
 
-    final scannedPath = await scanDocument();
-    final sourcePath = scannedPath ?? inputPath;
+    // final scannedPath = await scanDocument();
+    final sourcePath =  inputPath;
 
     img.Image? image = img.decodeImage(File(sourcePath).readAsBytesSync());
     if (image == null) {
@@ -256,6 +208,11 @@ class Enhancer {
     await runMLKitTextRecognition(tmpPath, outputPath);
 
     print('Parsed text saved at: $outputPath');
+  }
+
+  void cleanupAfterImage() {
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
   }
 
   Future<void> drawContoursForTextBlocks(
@@ -285,6 +242,163 @@ class Enhancer {
     }
     File(outputFile).writeAsBytesSync(img.encodePng(image));
   }
+
+  List<List<_LineEntry>> _groupTextLinesByLineSweep(
+    List<TextBlock> blocks, {
+    double lineGapThresholdPx = 1,
+    double overlapPaddingPx = 2,
+  }) {
+    final entries = <_LineEntry>[];
+    for (final block in blocks) {
+      for (final line in block.lines) {
+        final rect = line.boundingBox;
+        entries.add(_LineEntry(
+          text: line.text,
+          rect: rect,
+          left: rect.left.toDouble(),
+          right: (rect.left + rect.width).toDouble(),
+          top: rect.top.toDouble(),
+          bottom: (rect.top + rect.height).toDouble(),
+        ));
+      }
+    }
+    if (entries.isEmpty) return [];
+
+    entries.sort((a, b) {
+      final centerCompare = a.centroidY.compareTo(b.centroidY);
+      if (centerCompare != 0) return centerCompare;
+      return a.left.compareTo(b.left);
+    });
+
+    final results = <List<_LineEntry>>[];
+    final currentLineStack = <_LineEntry>[];
+    double currentMinTop = entries.first.top;
+    double currentMaxBottom = entries.first.bottom;
+    double currentAvgCenter = entries.first.centroidY;
+    double currentAvgHeight = entries.first.height;
+
+    void flushCurrentLine() {
+      if (currentLineStack.isEmpty) return;
+      currentLineStack.sort((a, b) => a.left.compareTo(b.left));
+      results.add(List<_LineEntry>.from(currentLineStack));
+      currentLineStack.clear();
+    }
+
+    void startNewLine(_LineEntry entry) {
+      currentLineStack.add(entry);
+      currentMinTop = entry.top;
+      currentMaxBottom = entry.bottom;
+      currentAvgCenter = entry.centroidY;
+      currentAvgHeight = entry.height;
+    }
+
+    startNewLine(entries.first);
+
+    for (var i = 1; i < entries.length; i++) {
+      final entry = entries[i];
+
+      final dynamicThreshold =
+          (currentAvgHeight * 0.4).clamp(lineGapThresholdPx, double.infinity);
+
+        final centerAligned =
+          (entry.centroidY - currentAvgCenter).abs() <= dynamicThreshold;
+
+      final tooFarDown = entry.top > currentMaxBottom + dynamicThreshold;
+
+      if (tooFarDown) {
+        flushCurrentLine();
+        startNewLine(entry);
+        continue;
+      }
+
+      if (centerAligned) {
+        currentLineStack.add(entry);
+        final count = currentLineStack.length;
+        currentMinTop = currentMinTop < entry.top ? currentMinTop : entry.top;
+        currentMaxBottom =
+            currentMaxBottom > entry.bottom ? currentMaxBottom : entry.bottom;
+        currentAvgCenter =
+            ((currentAvgCenter * (count - 1)) + entry.centroidY) / count;
+        currentAvgHeight =
+            ((currentAvgHeight * (count - 1)) + entry.height) / count;
+      } else {
+        flushCurrentLine();
+        startNewLine(entry);
+      }
+    }
+
+    flushCurrentLine();
+    results.sort((a, b) {
+      final aCenter = a.isEmpty
+          ? 0.0
+          : a.map((entry) => entry.centroidY).reduce((x, y) => x + y) /
+              a.length;
+      final bCenter = b.isEmpty
+          ? 0.0
+          : b.map((entry) => entry.centroidY).reduce((x, y) => x + y) /
+              b.length;
+      return aCenter.compareTo(bCenter);
+    });
+    return results;
+  }
+
+  LineNode? _buildLineList(List<_LineEntry> lineEntries) {
+    if (lineEntries.isEmpty) return null;
+
+    final sorted = [...lineEntries]..sort((a, b) => a.left.compareTo(b.left));
+    final head = LineNode(sorted.first.text, sorted.first.rect);
+    LineNode? current = head;
+
+    for (var i = 1; i < sorted.length; i++) {
+      final entry = sorted[i];
+      final next = LineNode(entry.text, entry.rect);
+      current!.next = next;
+      current = next;
+    }
+
+    return head;
+  }
+
+  String _lineListToText(LineNode? head) {
+    if (head == null) return '';
+    final parts = <String>[];
+    LineNode? current = head;
+    while (current != null) {
+      parts.add(current.text);
+      current = current.next;
+    }
+    return parts.join(' -> ');
+  }
+}
+
+class _LineEntry {
+  // Line entry is a plain debuggable class for line-sweep grouping.
+  _LineEntry({
+    required this.text,
+    required this.rect,
+    required this.left,
+    required this.right,
+    required this.top,
+    required this.bottom,
+  });
+
+  final String text;
+  final Rect rect;
+  final double left;
+  final double right;
+  final double top;
+  final double bottom;
+
+  Offset get topLeft => Offset(left, top);
+  Offset get topRight => Offset(right, top);
+  Offset get bottomLeft => Offset(left, bottom);
+  Offset get bottomRight => Offset(right, bottom);
+
+  double get centroidX =>
+      (topLeft.dx + topRight.dx + bottomLeft.dx + bottomRight.dx) / 4;
+  double get centroidY =>
+      (topLeft.dy + topRight.dy + bottomLeft.dy + bottomRight.dy) / 4;
+  double get height => (bottom - top).abs();
 }
 
 void main() async {
@@ -299,5 +413,6 @@ void main() async {
   for (var imagePath in images) {
     final fileName = path.basename(imagePath);
     await enhancer.processReceipt(fileName);
+    enhancer.cleanupAfterImage();
   }
 }
