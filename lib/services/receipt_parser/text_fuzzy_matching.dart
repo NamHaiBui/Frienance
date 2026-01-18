@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:frienance/services/parser/object_view.dart' show ObjectView;
-import 'package:frienance/services/parser/receipt.dart' show Receipt;
+import 'package:frienance/services/receipt_parser/object_config.dart' show ObjectView;
+import 'package:frienance/services/receipt_parser/receipt.dart' show Receipt;
 import 'package:path/path.dart' as path;
 
 void outputStatistics(Map<String, int> stats, String filePath) {

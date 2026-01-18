@@ -5,8 +5,8 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:frienance/services/receipt_parser/object_extraction.dart';
-import 'package:frienance/utils/image_btw_mat_converter.dart';
-import 'package:frienance/utils/line_list.dart';
+import 'package:frienance/services/receipt_parser/utils/image_btw_mat_converter.dart';
+import 'package:frienance/services/receipt_parser/utils/line_list.dart';
 import 'package:opencv_dart/opencv_dart.dart' as cv2;
 import 'package:path/path.dart' as path;
 import 'package:image/image.dart' as img;

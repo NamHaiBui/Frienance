@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
-import 'object_view.dart';
+import 'object_config.dart';
 
 ObjectView readConfig({String configPath = 'config.json'}) {
   var content = File(configPath).readAsStringSync();

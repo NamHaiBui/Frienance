@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:frienance/utils/logger.dart';
-import 'package:frienance/utils/mat_extensions.dart';
+import 'package:frienance/services/receipt_parser/utils/mat_extensions.dart';
 import 'package:path/path.dart' as path;
 import 'package:opencv_dart/opencv_dart.dart' as cv2;
 import 'package:collection/collection.dart';
