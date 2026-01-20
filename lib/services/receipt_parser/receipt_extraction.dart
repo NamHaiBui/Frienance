@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:frienance/utils/logger.dart';
-import 'package:frienance/services/receipt_parser/utils/mat_extensions.dart';
+import 'package:frienance/services/receipt_parser/utils/open_cv_utils/mat_extensions.dart';
 import 'package:path/path.dart' as path;
 import 'package:opencv_dart/opencv_dart.dart' as cv2;
 import 'package:collection/collection.dart';
@@ -17,7 +17,8 @@ const bool kDebugMode = bool.fromEnvironment('dart.vm.product') == false;
 
 typedef Point2f = cv2.Point2f;
 
-class ReceiptRecognizer with Loggable {
+class ReceiptExtraction with Loggable {
+  
   String basePath = '';
   final String inputFolder = "1_source_img";
   final String outputFolder = "2_temp_img";
@@ -26,14 +27,11 @@ class ReceiptRecognizer with Loggable {
   /// When true, dumps intermediate images and extra logs.
   final bool saveDebugImages;
 
-  static Future<ReceiptRecognizer> create() async {
-    final instance = ReceiptRecognizer._();
+  static Future<ReceiptExtraction> create() async {
+    final instance = ReceiptExtraction._();
     await instance._init();
     return instance;
   }
-
-  ReceiptRecognizer._({bool? saveDebugImages})
-      : saveDebugImages = saveDebugImages ?? kDebugMode;
 
   Future<void> _init() async {
     final resolvedBasePath = await _resolveBasePath();
@@ -627,7 +625,7 @@ Future<String> extractReceipt(String filePath) async {
 }
 
 Future<void> preworkImage() async {
-  final recognizer = await ReceiptRecognizer.create();
+  final recognizer = await ReceiptExtraction.create();
   try {
     List<String> imageAssets = [];
 
@@ -670,7 +668,7 @@ Future<void> preworkImagesonEmulator() async {
   await flutter_material.loadLibrary();
   flutter_material.WidgetsFlutterBinding.ensureInitialized();
 
-  final recognizer = await ReceiptRecognizer.create();
+  final recognizer = await ReceiptExtraction.create();
   try {
     List<String> imageAssets = [];
     int importedCount = 0;

@@ -4,9 +4,9 @@ import 'dart:io';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:frienance/services/receipt_parser/object_extraction.dart';
-import 'package:frienance/services/receipt_parser/utils/image_btw_mat_converter.dart';
-import 'package:frienance/services/receipt_parser/utils/line_list.dart';
+import 'package:frienance/services/receipt_parser/receipt_extraction.dart';
+import 'package:frienance/services/receipt_parser/utils/open_cv_utils/image_btw_mat_converter.dart';
+import 'package:frienance/services/receipt_parser/utils/fuzzy_matching_utils/line_list.dart';
 import 'package:opencv_dart/opencv_dart.dart' as cv2;
 import 'package:path/path.dart' as path;
 import 'package:image/image.dart' as img;
@@ -404,7 +404,7 @@ class _LineEntry {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Run ReceiptRecognizer
-  final recognizer = await ReceiptRecognizer.create();
+  final recognizer = await ReceiptExtraction.create();
   await preworkImagesonEmulator();
   // Run Enhancer using the output from ReceiptRecognizer
   final enhancer = await Enhancer.create(sharedBasePath: recognizer.basePath);
