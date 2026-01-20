@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frienance/services/receipt_parser/adaptive_fuzzy_matcher.dart';
+import 'package:frienance/services/receipt_parser/utils/fuzzy_matching_utils/constants/base_configs.dart';
 import 'test_helper.dart';
 
 /// Tests for market/store name extraction
@@ -54,7 +55,7 @@ void main() {
       final result = matcher.extractMarket(lines);
       
       expect(result.value, equals('whole_foods'));
-      expect(result.confidence, greaterThanOrEqualTo(AdaptiveFuzzyMatcher.mediumConfidence));
+      expect(result.confidence, greaterThanOrEqualTo(FuzzyMatchingConfidence.medium.value));
     });
 
     test('should extract Spar market (European format)', () {
@@ -104,7 +105,7 @@ void main() {
       
       final result = matcher.extractMarket(lines);
       
-      expect(result.confidence, lessThan(AdaptiveFuzzyMatcher.highConfidence));
+      expect(result.confidence, lessThan(FuzzyMatchingConfidence.high.value));
     });
 
     test('should return null for empty lines', () {

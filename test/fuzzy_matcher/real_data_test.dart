@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frienance/services/receipt_parser/adaptive_fuzzy_matcher.dart';
+import 'package:frienance/services/receipt_parser/utils/fuzzy_matching_utils/model/model.dart';
 import 'test_helper.dart';
 
 /// Tests using REAL receipt data from lib/cache/output/cache/output/

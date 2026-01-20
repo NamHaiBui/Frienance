@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frienance/services/receipt_parser/adaptive_fuzzy_matcher.dart';
+import 'package:frienance/services/receipt_parser/utils/fuzzy_matching_utils/constants/base_configs.dart';
 import 'test_helper.dart';
 
 /// Tests for AdaptiveFuzzyMatcher initialization and configuration
@@ -53,9 +54,9 @@ void main() {
     });
 
     test('should have valid confidence thresholds', () {
-      expect(AdaptiveFuzzyMatcher.highConfidence, equals(0.85));
-      expect(AdaptiveFuzzyMatcher.mediumConfidence, equals(0.65));
-      expect(AdaptiveFuzzyMatcher.lowConfidence, equals(0.45));
+      expect(FuzzyMatchingConfidence.high.value, equals(0.85));
+      expect(FuzzyMatchingConfidence.medium.value, equals(0.65));
+      expect(FuzzyMatchingConfidence.low.value, equals(0.45));
     });
   });
 

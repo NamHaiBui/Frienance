@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frienance/services/receipt_parser/adaptive_fuzzy_matcher.dart';
+import 'package:frienance/services/receipt_parser/utils/fuzzy_matching_utils/constants/base_configs.dart';
 import 'test_helper.dart';
 
 /// Tests for sum/total extraction
@@ -29,7 +30,7 @@ void main() {
       
       expect(result.value, isNotNull);
       expect(result.value, equals('10.20'));
-      expect(result.confidence, greaterThan(AdaptiveFuzzyMatcher.mediumConfidence));
+      expect(result.confidence, greaterThan(FuzzyMatchingConfidence.medium.value));
     });
 
     test('should extract grand total', () {
@@ -174,7 +175,7 @@ void main() {
       final result = matcher.extractSum(lines);
       
       if (result.value == null) {
-        expect(result.confidence, lessThan(AdaptiveFuzzyMatcher.lowConfidence));
+        expect(result.confidence, lessThan(FuzzyMatchingConfidence.low.value));
       }
     });
 
@@ -225,7 +226,7 @@ void main() {
       
       final result = matcher.extractSum(lines);
       
-      expect(result.confidence, greaterThan(AdaptiveFuzzyMatcher.mediumConfidence));
+      expect(result.confidence, greaterThan(FuzzyMatchingConfidence.medium.value));
     });
   });
 }

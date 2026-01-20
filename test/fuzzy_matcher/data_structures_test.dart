@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frienance/services/receipt_parser/adaptive_fuzzy_matcher.dart';
+import 'package:frienance/services/receipt_parser/utils/fuzzy_matching_utils/constants/base_configs.dart';
+import 'package:frienance/services/receipt_parser/utils/fuzzy_matching_utils/model/model.dart';
 import 'test_helper.dart';
 
 /// Tests for data structures: MatchResult, ItemMatch, ItemsResult, ExtractionResult
@@ -25,9 +27,10 @@ void main() {
         fieldType: 'market',
       );
       
+      // High confidence (>= 0.85) is exclusively high
       expect(result.isHighConfidence, isTrue);
-      expect(result.isMediumConfidence, isTrue);
-      expect(result.isLowConfidence, isTrue);
+      expect(result.isMediumConfidence, isFalse); // Not medium, it's high
+      expect(result.isLowConfidence, isFalse);     // Not low either
     });
 
     test('should identify medium confidence results', () {
@@ -39,9 +42,10 @@ void main() {
         fieldType: 'market',
       );
       
+      // Medium confidence (0.65 <= x < 0.85)
       expect(result.isHighConfidence, isFalse);
       expect(result.isMediumConfidence, isTrue);
-      expect(result.isLowConfidence, isTrue);
+      expect(result.isLowConfidence, isFalse);    // Not low, it's medium
     });
 
     test('should identify low confidence results', () {
@@ -53,6 +57,7 @@ void main() {
         fieldType: 'market',
       );
       
+      // Low confidence (0.45 <= x < 0.65)
       expect(result.isHighConfidence, isFalse);
       expect(result.isMediumConfidence, isFalse);
       expect(result.isLowConfidence, isTrue);
@@ -241,15 +246,15 @@ void main() {
 
   group('Confidence Thresholds', () {
     test('should have correct static threshold values', () {
-      expect(AdaptiveFuzzyMatcher.highConfidence, equals(0.85));
-      expect(AdaptiveFuzzyMatcher.mediumConfidence, equals(0.65));
-      expect(AdaptiveFuzzyMatcher.lowConfidence, equals(0.45));
+      expect(FuzzyMatchingConfidence.high.value, equals(0.85));
+      expect(FuzzyMatchingConfidence.medium.value, equals(0.65));
+      expect(FuzzyMatchingConfidence.low.value, equals(0.45));
     });
 
     test('thresholds should be in descending order', () {
-      expect(AdaptiveFuzzyMatcher.highConfidence, greaterThan(AdaptiveFuzzyMatcher.mediumConfidence));
-      expect(AdaptiveFuzzyMatcher.mediumConfidence, greaterThan(AdaptiveFuzzyMatcher.lowConfidence));
-      expect(AdaptiveFuzzyMatcher.lowConfidence, greaterThan(0));
+      expect(FuzzyMatchingConfidence.high.value, greaterThan(FuzzyMatchingConfidence.medium.value));
+      expect(FuzzyMatchingConfidence.medium.value, greaterThan(FuzzyMatchingConfidence.low.value));
+      expect(FuzzyMatchingConfidence.low.value, greaterThan(0));
     });
   });
 }
