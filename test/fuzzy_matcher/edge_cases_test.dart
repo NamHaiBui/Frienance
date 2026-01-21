@@ -5,14 +5,16 @@ import 'test_helper.dart';
 /// Tests for edge cases and error handling
 void main() {
   late AdaptiveFuzzyMatcher matcher;
+  late TestHelper helper;
 
-  setUp(() {
-    TestHelper.setUp();
-    matcher = TestHelper.matcher;
+  setUp(() async {
+    helper = TestHelper();
+    await helper.setUp();
+    matcher = helper.matcher;
   });
 
   tearDown(() {
-    TestHelper.tearDown();
+    helper.tearDown();
   });
 
   group('Edge Cases - Empty/Invalid Input', () {

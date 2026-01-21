@@ -11,15 +11,17 @@ import 'test_helper.dart';
 void main() {
   late AdaptiveFuzzyMatcher matcher;
   late String testConfigPath;
+  late TestHelper helper;
 
-  setUp(() {
-    TestHelper.setUp();
-    matcher = TestHelper.matcher;
-    testConfigPath = TestHelper.testConfigPath;
+  setUp(() async {
+    helper = TestHelper();
+    await helper.setUp();
+    matcher = helper.matcher;
+    testConfigPath = helper.testConfigPath;
   });
 
   tearDown(() {
-    TestHelper.tearDown();
+    helper.tearDown();
   });
 
   // ==========================================
@@ -680,7 +682,7 @@ void main() {
       expect(categories, containsAll(['category_a', 'category_b', 'category_c']));
     });
 
-    test('should return empty list when no categories exist', () {
+    test('should return empty list when no categories exist', () async {
       // Fresh matcher without categories
       final freshConfigPath = '${Directory.systemTemp.path}/fresh_config_${DateTime.now().millisecondsSinceEpoch}.json';
       final freshConfig = {
@@ -690,6 +692,7 @@ void main() {
       File(freshConfigPath).writeAsStringSync(json.encode(freshConfig));
 
       final freshMatcher = AdaptiveFuzzyMatcher(freshConfigPath);
+      await freshMatcher.initialize();
       final categories = freshMatcher.getCategories();
 
       expect(categories, isEmpty);
@@ -957,7 +960,7 @@ void main() {
       expect(spellings, isNot(contains('  whitespace  ')));
     });
 
-    test('should preserve config integrity after multiple operations', () {
+    test('should preserve config integrity after multiple operations', () async {
       // Perform multiple operations
       matcher.addStore(name: 'Store1', spellings: ['store1']);
       matcher.addStore(name: 'Store2', spellings: ['store2'], category: 'cat1');
@@ -973,6 +976,7 @@ void main() {
 
       // Re-load matcher and verify state
       final reloadedMatcher = AdaptiveFuzzyMatcher(testConfigPath);
+      await reloadedMatcher.initialize();
       expect(reloadedMatcher.hasStore('store1'), isFalse);
       expect(reloadedMatcher.hasStore('store2'), isTrue);
       expect(reloadedMatcher.getSpellings('store2'), contains('store2 fixed'));
@@ -1002,37 +1006,41 @@ void main() {
   // ==========================================
 
   group('Config Persistence', () {
-    test('should persist stores to config file', () {
+    test('should persist stores to config file', () async {
       matcher.addStore(name: 'PersistTest', spellings: ['persisttest']);
 
       // Create new matcher instance to verify persistence
       final newMatcher = AdaptiveFuzzyMatcher(testConfigPath);
+      await newMatcher.initialize();
       expect(newMatcher.hasStore('persisttest'), isTrue);
       expect(newMatcher.getSpellings('persisttest'), contains('persisttest'));
     });
 
-    test('should persist categories to config file', () {
+    test('should persist categories to config file', () async {
       matcher.addStore(name: 'CatPersist', spellings: ['catpersist'], category: 'persist_cat');
 
       final newMatcher = AdaptiveFuzzyMatcher(testConfigPath);
+      await newMatcher.initialize();
       expect(newMatcher.getStoreCategory('catpersist'), equals('persist_cat'));
       expect(newMatcher.getStoresInCategory('persist_cat'), contains('catpersist'));
     });
 
-    test('should persist store removal to config file', () {
+    test('should persist store removal to config file', () async {
       matcher.addStore(name: 'ToBeRemoved', spellings: ['toberemoved']);
       matcher.removeStore('ToBeRemoved');
 
       final newMatcher = AdaptiveFuzzyMatcher(testConfigPath);
+      await newMatcher.initialize();
       expect(newMatcher.hasStore('toberemoved'), isFalse);
     });
 
-    test('should persist spelling changes to config file', () {
+    test('should persist spelling changes to config file', () async {
       matcher.addStore(name: 'SpellingPersist', spellings: ['sp1', 'sp2']);
       matcher.removeSpellings('SpellingPersist', ['sp2']);
       matcher.addSpellings('SpellingPersist', ['sp3']);
 
       final newMatcher = AdaptiveFuzzyMatcher(testConfigPath);
+      await newMatcher.initialize();
       final spellings = newMatcher.getSpellings('spellingpersist');
       expect(spellings, contains('sp1'));
       expect(spellings, isNot(contains('sp2')));

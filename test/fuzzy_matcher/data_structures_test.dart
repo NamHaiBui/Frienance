@@ -6,15 +6,19 @@ import 'test_helper.dart';
 
 /// Tests for data structures: MatchResult, ItemMatch, ItemsResult, ExtractionResult
 void main() {
+  // This is an intepreter bug
+  // ignore: unused_local_variable
   late AdaptiveFuzzyMatcher matcher;
+  late TestHelper helper;
 
-  setUp(() {
-    TestHelper.setUp();
-    matcher = TestHelper.matcher;
+  setUp(() async {
+    helper = TestHelper();
+    await helper.setUp();
+    matcher = helper.matcher;
   });
 
   tearDown(() {
-    TestHelper.tearDown();
+    helper.tearDown();
   });
 
   group('MatchResult', () {

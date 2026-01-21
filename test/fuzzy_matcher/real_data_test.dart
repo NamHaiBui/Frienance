@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_print
+
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,19 +10,22 @@ import 'test_helper.dart';
 /// Tests using REAL receipt data from lib/cache/output/cache/output/
 /// These tests validate extraction against actual OCR output
 void main() {
+  // ignore: unused_local_variable
   late String testConfigPath;
   late AdaptiveFuzzyMatcher matcher;
   late String receiptsDir;
+  late TestHelper helper;
 
-  setUp(() {
-    TestHelper.setUp();
-    testConfigPath = TestHelper.testConfigPath;
-    matcher = TestHelper.matcher;
+  setUp(() async {
+    helper = TestHelper();
+    await helper.setUp();
+    testConfigPath = helper.testConfigPath;
+    matcher = helper.matcher;
     receiptsDir = 'lib/cache/output/cache/output';
   });
 
   tearDown(() {
-    TestHelper.tearDown();
+    helper.tearDown();
   });
 
   List<String> loadReceiptFile(String filename) {

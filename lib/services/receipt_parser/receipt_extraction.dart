@@ -9,11 +9,7 @@ import 'package:collection/collection.dart';
 
 // Lazy import
 import 'package:flutter/material.dart' deferred as flutter_material show WidgetsFlutterBinding;
-import 'package:flutter/services.dart' deferred as flutter_services;
 import 'package:path_provider/path_provider.dart' deferred as path_provider;
-
-// Debug mode flag for pure Dart execution
-const bool kDebugMode = bool.fromEnvironment('dart.vm.product') == false;
 
 typedef Point2f = cv2.Point2f;
 
@@ -27,8 +23,10 @@ class ReceiptExtraction with Loggable {
   /// When true, dumps intermediate images and extra logs.
   final bool saveDebugImages;
 
-  static Future<ReceiptExtraction> create() async {
-    final instance = ReceiptExtraction._();
+  ReceiptExtraction._({this.saveDebugImages = false});
+
+  static Future<ReceiptExtraction> create({bool saveDebugImages = false}) async {
+    final instance = ReceiptExtraction._(saveDebugImages: saveDebugImages);
     await instance._init();
     return instance;
   }
@@ -80,15 +78,10 @@ class ReceiptExtraction with Loggable {
         final bytes = await File(imagePath).readAsBytes();
 
         await File(destination).writeAsBytes(bytes);
-
-        if (kDebugMode) {
-          print('Copied $fileName to $destination');
-        }
+        logger.d('Copied $fileName to $destination');
       }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error copying images: $e');
-      }
+    } catch (e, stackTrace) {
+      logger.e('Error copying images', error: e, stackTrace: stackTrace);
       rethrow;
     }
   }
@@ -107,15 +100,11 @@ class ReceiptExtraction with Loggable {
         Directory(outputPath).create(recursive: true),
       ]);
 
-      if (kDebugMode) {
-        print('Cache directory: $basePath');
-        print('Input directory: $inputPath');
-        print('Output directory: $outputPath');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error preparing folders: $e');
-      }
+      logger.i('Cache directory: $basePath');
+      logger.d('Input directory: $inputPath');
+      logger.d('Output directory: $outputPath');
+    } catch (e, stackTrace) {
+      logger.e('Error preparing folders', error: e, stackTrace: stackTrace);
       rethrow;
     }
   }
@@ -136,9 +125,7 @@ class ReceiptExtraction with Loggable {
       final inputPath = path.join(basePath, inputFolder);
 
       if (!Directory(inputPath).existsSync()) {
-        if (kDebugMode) {
-          print('Input directory not found: $inputPath');
-        }
+        logger.w('Input directory not found: $inputPath');
         return [];
       }
 
@@ -151,15 +138,11 @@ class ReceiptExtraction with Loggable {
           .map((entity) => entity.path)
           .toList();
 
-      if (kDebugMode) {
-        print('Found ${images.length} images in $inputPath');
-      }
+      logger.i('Found ${images.length} images in $inputPath');
 
       return images;
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error finding images: $e');
-      }
+    } catch (e, stackTrace) {
+      logger.e('Error finding images', error: e, stackTrace: stackTrace);
       return [];
     }
   }
@@ -209,10 +192,7 @@ class ReceiptExtraction with Loggable {
       }
     }
 
-    if (kDebugMode) {
-      print(
-          'Distance Transform: max distance = $maxDist at (${bestPoint.x}, ${bestPoint.y})');
-    }
+    logger.v('Distance Transform: max distance = $maxDist at (${bestPoint.x}, ${bestPoint.y})');
 
     // Fallback to center if no good point found
     if (maxDist < 5) {
@@ -333,16 +313,11 @@ class ReceiptExtraction with Loggable {
       await Directory(path.dirname(outputPath)).create(recursive: true);
 
       cv2.imwrite(outputPath, image);
-
-      if (kDebugMode) {
-        print('Saved image to: $outputPath');
-      }
+      logger.d('Saved image to: $outputPath');
 
       return outputPath;
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error saving image: $e');
-      }
+    } catch (e, stackTrace) {
+      logger.e('Error saving image', error: e, stackTrace: stackTrace);
       rethrow;
     }
   }
@@ -379,362 +354,206 @@ class ReceiptExtraction with Loggable {
     return normalized;
   }
 
-  Future<void> saveProcessingStep(
-      cv2.Mat image, String originalFileName, String step) async {
-    if (!saveDebugImages) return;
-    await saveToOutput(image, originalFileName, suffix: 'step_$step');
+  
+/// Process a single image from device storage (camera/gallery) on mobile.
+  /// Returns the path to the processed image file.
+  /// 
+  /// [imagePath] - Absolute path to the image file on the device
+  /// Returns the path to the processed output image, or null if processing failed.
+  Future<String?> processImageFromDevice(String imagePath) async {
+    try {
+      // Validate input file exists
+      final inputFile = File(imagePath);
+      if (!await inputFile.exists()) {
+        logger.w('Input image not found: $imagePath');
+        return null;
+      }
+
+      // Copy to source directory first
+      await copyImagesToSourceDir([imagePath]);
+
+      final fileName = path.basename(imagePath);
+      final sourceFilePath = path.join(basePath, inputFolder, fileName);
+
+      // Process the single image
+      return await _processSingleImage(sourceFilePath);
+    } catch (e, stackTrace) {
+      logger.e('Error processing image from device', error: e, stackTrace: stackTrace);
+      return null;
+    }
   }
-Future<String> extractReceipt(String filePath) async {
-  // Pass the string of the result
-  await Future.delayed(Duration(milliseconds: 100)); // Simulate processing delay
-  return "Extracted receipt data for file: $filePath";
-}
+
+  /// Internal method to process a single image file.
+  /// Returns the path to the processed output image, or null if processing failed.
+  Future<String?> _processSingleImage(String imagePath) async {
+    try {
+      cv2.Mat image = cv2.imread(imagePath);
+
+      double resizeRatio = 2048 / image.shape[0];
+      cv2.Mat original1 = image.clone();
+      image = opencvResize(image, resizeRatio);
+
+      // --- PHASE 1 SHADOW REMOVAL ---
+      cv2.Mat gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY);
+
+      cv2.Mat bgKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 25));
+      cv2.Mat dilated = cv2.dilate(gray, bgKernel);
+      cv2.Mat bg = cv2.medianBlur(dilated, 25);
+
+      cv2.Mat diff = cv2.Mat.zeros(gray.rows, gray.cols, gray.type);
+      cv2.absDiff(gray, bg, dst: diff);
+      gray = cv2.bitwiseNOT(diff);
+
+      // --- PHASE 2 ENHANCED CONTRAST ---
+      cv2.Mat claheImg =
+          cv2.createCLAHE(clipLimit: 3.0, tileGridSize: (8, 8)).apply(gray);
+      cv2.Mat edgePreserved = cv2.bilateralFilter(claheImg, 9, 75, 75);
+
+      cv2.Mat gradientBlurKernel =
+          cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3));
+      cv2.Mat gradient =
+          cv2.morphologyEx(edgePreserved, cv2.MORPH_GRADIENT, gradientBlurKernel);
+
+      cv2.Mat thresholded = cv2.adaptiveThreshold(
+        gradient,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        31,
+        10,
+      );
+
+      cv2.Mat thresholdClosingKernel =
+          cv2.getStructuringElement(cv2.MORPH_RECT, (11, 11));
+      cv2.Mat adaptiveThresInverted = cv2.bitwiseNOT(thresholded);
+      cv2.Mat adaptiveThresClosed = cv2.morphologyEx(
+        adaptiveThresInverted,
+        cv2.MORPH_CLOSE,
+        thresholdClosingKernel,
+      );
+
+      thresholded = cv2.bitwiseNOT(adaptiveThresClosed);
+
+      // --- BORDER RECTANGLE ---
+      const int borderThickness = 10;
+      final int inset = (borderThickness / 2).ceil();
+      final int innerW = thresholded.cols - (2 * inset);
+      final int innerH = thresholded.rows - (2 * inset);
+      if (innerW > 0 && innerH > 0) {
+        cv2.rectangle(
+          thresholded,
+          cv2.Rect(inset, inset, innerW, innerH),
+          cv2.Scalar.all(0),
+          thickness: borderThickness,
+        );
+      }
+
+      // Create flood fill mask
+      cv2.Mat floodMask = cv2.Mat.zeros(
+          thresholded.rows + 2, thresholded.cols + 2, cv2.MatType.CV_8UC1);
+
+      int centerX = thresholded.cols ~/ 2;
+      int centerY = thresholded.rows ~/ 2;
+
+      cv2.Point seedPoint = _findOptimalSeedPoint(
+        thresholded,
+        centerX,
+        centerY,
+        searchRadius: min(thresholded.cols, thresholded.rows) ~/ 4,
+      );
+
+      cv2.Mat floodImage = thresholded.clone();
+
+      var (_, _, filledMask, _) = cv2.floodFill(
+        floodImage,
+        seedPoint,
+        cv2.Scalar.all(255),
+        mask: floodMask,
+        loDiff: cv2.Scalar.all(0),
+        upDiff: cv2.Scalar.all(0),
+        flags: 4 | (255 << 8) | cv2.FLOODFILL_MASK_ONLY,
+      );
+
+      cv2.Mat receiptMask = filledMask
+          .rowRange(1, filledMask.rows - 2)
+          .colRange(1, filledMask.cols - 2)
+          .clone();
+
+      var (contours, _) = cv2.findContours(
+        receiptMask,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE,
+      );
+
+      var temp = (contours.toList().sorted((a, b) {
+        double areaA = cv2.contourArea(a);
+        double areaB = cv2.contourArea(b);
+        return areaB.compareTo(areaA);
+      }));
+      cv2.VecVecPoint sortedContours = cv2.VecVecPoint.fromList(temp
+          .map((e) =>
+              e.map((e2) => cv2.Point(e2.x.toInt(), e2.y.toInt())).toList())
+          .toList());
+
+      var largestContours = sortedContours.take(10).toList();
+
+      var receiptContour = getReceiptContour(largestContours);
+      if (receiptContour.length != 4) {
+        logger.w('No 4-point receipt contour found in: $imagePath');
+        // Fall back to processing without perspective correction
+        var result = processImage(original1);
+        return await saveToOutput(result, path.basename(imagePath),
+            suffix: 'processed');
+      }
+
+      var scanned = wrapPerspective(original1, receiptContour, resizeRatio);
+      var result = processImage(scanned);
+      final savedPath = await saveToOutput(result, path.basename(imagePath),
+          suffix: 'processed');
+      
+      logger.i('Saved processed image to: $savedPath');
+      
+      return savedPath;
+    } catch (e, stackTrace) {
+      logger.e('Error processing $imagePath', error: e, stackTrace: stackTrace);
+      return null;
+    }
+  }
 
   Future<void> processReceipts() async {
     final images = await findImages();
     for (var imagePath in images) {
       try {
-        // final fileName = path.basename(imagePath);
-        // Read image
-        cv2.Mat image = cv2.imread(imagePath);
-
-        double resizeRatio = 2048 / image.shape[0]; 
-        cv2.Mat original1 = image.clone();
-        image = opencvResize(image, resizeRatio);
-        // resized clone not needed separately; `original1` holds the unresized image
-
-        // --- NEW: PHASE 1 SHADOW REMOVAL ---
-        cv2.Mat gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY);
-        
-        // 1. Estimate the background illumination
-        cv2.Mat bgKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 25));
-        cv2.Mat dilated = cv2.dilate(gray, bgKernel);
-        cv2.Mat bg = cv2.medianBlur(dilated, 25);
-        
-        // 2. Subtract lighting patterns and invert to normalize background
-        cv2.Mat diff = cv2.Mat.zeros(gray.rows, gray.cols, gray.type);
-        cv2.absDiff(gray, bg, dst: diff);
-        gray = cv2.bitwiseNOT(diff); 
-        // ------------------------------------
-
-        // --- NEW: PHASE 2 ENHANCED CONTRAST ---
-        // Increase clipLimit to 3.0 to force text visibility in shadowed regions
-        cv2.Mat claheImg = cv2.createCLAHE(clipLimit: 3.0, tileGridSize: (8, 8)).apply(gray);
-        
-        // Use Bilateral Filter to smooth wood grain while keeping receipt edges sharp
-        cv2.Mat edgePreserved = cv2.bilateralFilter(claheImg, 9, 75, 75);
-        // --------------------------------------
-
-        cv2.Mat gradientBlurKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3));
-        cv2.Mat gradient = cv2.morphologyEx(edgePreserved, cv2.MORPH_GRADIENT, gradientBlurKernel);
-      
-        // Increase block size to ignore crease noise
-        cv2.Mat thresholded = cv2.adaptiveThreshold(
-          gradient,
-          255,
-          cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-          cv2.THRESH_BINARY,
-          31, // Larger block size handles global lighting gradients better
-          10  // Larger C constant cleans up small noise speckles
-        );
-        // await saveProcessingStep(thresholded, fileName, '2_adaptive_thresh');
-
-        cv2.Mat thresholdClosingKernel =
-            cv2.getStructuringElement(cv2.MORPH_RECT, (11, 11));
-        cv2.Mat adaptiveThresInverted = cv2.bitwiseNOT(thresholded);
-        cv2.Mat adaptiveThresClosed = cv2.morphologyEx(
-          adaptiveThresInverted,
-          cv2.MORPH_CLOSE,
-          thresholdClosingKernel,
-        );
-        // cv2.Mat adaptiveThresOpen = cv2.morphologyEx(
-        //   adaptiveThresClosed,
-        //   cv2.MORPH_OPEN,
-        //   cv2.getStructuringElement(cv2.MORPH_RECT, (1, 1))
-        // );
-
-        thresholded = cv2.bitwiseNOT(adaptiveThresClosed);
-
-        // --- NEW: BORDER RECTANGLE ---
-        // Draw a black rectangle at the absolute edges to seal clipped shapes
-        // Draw an inner border fully inside the image bounds.
-        const int borderThickness = 10;
-        final int inset = (borderThickness / 2).ceil();
-        final int innerW = thresholded.cols - (2 * inset);
-        final int innerH = thresholded.rows - (2 * inset);
-        if (innerW > 0 && innerH > 0) {
-          cv2.rectangle(
-            thresholded,
-            cv2.Rect(inset, inset, innerW, innerH),
-            cv2.Scalar.all(0),
-            thickness: borderThickness,
-          );
-        }
-        // await saveProcessingStep(thresholded, fileName, '3_closed');
-        
-        // Create a mask 2 pixels larger than the image (requirement for floodFill)
-        cv2.Mat floodMask = cv2.Mat.zeros(
-            thresholded.rows + 2, thresholded.cols + 2, cv2.MatType.CV_8UC1);
-
-        // Seed point selection using Distance Transform
-        // This finds the "deepest white" point near center - maximally far from black pixels
-        int centerX = thresholded.cols ~/ 2;
-        int centerY = thresholded.rows ~/ 2;
-
-        // Use Distance Transform to find optimal seed point (robust to text at center)
-        cv2.Point seedPoint = _findOptimalSeedPoint(
-          thresholded,
-          centerX,
-          centerY,
-          searchRadius: min(thresholded.cols, thresholded.rows) ~/ 4,
-        );
-
-        if (kDebugMode) {
-          print(
-              'Seed point: (${seedPoint.x}, ${seedPoint.y}) [center: ($centerX, $centerY)]');
-        }
-
-        // Clone the thresholded image for flood fill
-        cv2.Mat floodImage = thresholded.clone();
-
-        // Floodfill expands from center - fills the receipt region
-        // Since we're working on a binary image (0 or 255), we don't need loDiff/upDiff
-        // Returns (rval, image, mask, rect)
-        var (_, _, filledMask, _) = cv2.floodFill(
-          floodImage,
-          seedPoint,
-          cv2.Scalar.all(255), // Fill color (white to identify region)
-          mask: floodMask,
-          loDiff: cv2.Scalar.all(0), // No tolerance needed for binary image
-          upDiff: cv2.Scalar.all(0), // No tolerance needed for binary image
-          flags: 4 | (255 << 8) | cv2.FLOODFILL_MASK_ONLY,
-        );
-
-        // The mask now contains the flood filled region - extract it
-        // Crop the mask to original image size (remove the 1-pixel border)
-        cv2.Mat receiptMask = filledMask
-            .rowRange(1, filledMask.rows - 2)
-            .colRange(1, filledMask.cols - 2)
-            .clone();
-
-        // await saveProcessingStep(receiptMask, fileName, '6_unopened_clean_mask');
-
-
-        // cv2.Mat edged = cv2.canny(cleanMask, 50, 125);
-        // await saveProcessingStep(edged, fileName, '5_edged');
-
-        // Find contours
-        var (contours, hierarchy) = cv2.findContours(
-          receiptMask,
-          cv2.RETR_EXTERNAL,
-          cv2.CHAIN_APPROX_SIMPLE,
-        );
-
-        var temp = (contours.toList().sorted((a, b) {
-          double areaA = cv2.contourArea(a);
-          double areaB = cv2.contourArea(b);
-          return areaB.compareTo(areaA);
-        }));
-        cv2.VecVecPoint sortedContours = cv2.VecVecPoint.fromList(temp
-            .map((e) =>
-                e.map((e2) => cv2.Point(e2.x.toInt(), e2.y.toInt())).toList())
-            .toList());
-
-        // cv2.Mat contoursImage = original.clone();
-        // cv2.drawContours(
-        //   contoursImage,
-        //   cv2.VecVecPoint.fromVecPoint(sortedContours.first),
-        //   -1,
-        //   cv2.Scalar.green,
-        //   thickness: 3,
-        // );
-        // await saveProcessingStep(contoursImage, fileName, '6_largest_contours');
-        // Sort contours by area
-
-        var largestContours =
-            sortedContours.take(10).toList(); // Take top 10 largest contours
-
-        // Draw approximated contours for visualization
-        // cv2.Mat approxImage = original.clone();
-        // for (var contour in largestContours) {
-        //   var approx = approximateContour(contour);
-        //   cv2.drawContours(
-        //     approxImage,
-        //     cv2.VecVecPoint.fromVecPoint(approx),
-        //     -1,
-        //     cv2.Scalar.blue,
-        //     thickness: 3,
-        //   );
-        //   // Draw corner points in red
-        //   for (var point in approx.toList()) {
-        //     cv2.circle(
-        //       approxImage,
-        //       point,
-        //       5,
-        //       cv2.Scalar.red,
-        //       thickness: -1,
-        //     );
-        //   }
-        // }
-        // await saveProcessingStep(
-        //     approxImage, fileName, '7_approximated_contours');
-
-        var receiptContour = getReceiptContour(largestContours);
-        if (receiptContour.length != 4) {
-          if (kDebugMode) {
-            print('No 4-point receipt contour found in: $imagePath');
-          }
-          continue;
-        }
-        // var finalContour = original.clone();
-        //   cv2.drawContours(
-        //     finalContour,
-        //     cv2.VecVecPoint.fromVecPoint(receiptContour),
-        //     -1,
-        //     cv2.Scalar.green,
-        //     thickness: 3,
-        //   );
-        //   // Draw corner points in red
-        //   for (var point in receiptContour.toList()) {
-        //     cv2.circle(
-        //       finalContour,
-        //       point,
-        //       5,
-        //       cv2.Scalar.red,
-        //       thickness: -1,
-        //     );
-        //   }
-
-        // await saveProcessingStep(finalContour, fileName, '7_final_contour');
-        var scanned = wrapPerspective(original1, receiptContour, resizeRatio);
-        // await saveProcessingStep(scanned, fileName, '7_scanned');
-        var result = processImage(scanned);
-        // await saveProcessingStep(result, fileName, '7_scanned');
-        final savedPath = await saveToOutput(result, path.basename(imagePath),
-            suffix: 'processed');
-        if (kDebugMode) {
-          print('Saved processed image to: $savedPath');
-        }
-      } catch (e) {
-        if (kDebugMode) {
-          print('Error processing $imagePath: $e');
-        }
+        await _processSingleImage(imagePath);
+      } catch (e, stackTrace) {
+        logger.e('Error processing $imagePath', error: e, stackTrace: stackTrace);
       }
     }
   }
 }
 
-Future<void> preworkImage() async {
+
+/// Convenience function to process a single image from device storage on mobile.
+/// Use this when the user picks an image from gallery or captures from camera.
+/// 
+/// [imagePath] - Absolute path to the image file on the device
+/// Returns the path to the processed output image, or null if processing failed.
+Future<String?> processReceiptImageFromDevice(String imagePath) async {
   final recognizer = await ReceiptExtraction.create();
-  try {
-    List<String> imageAssets = [];
-
-    // Load images from assets/images directory (pure Dart approach)
-    final assetsDir =
-        Directory(path.join(Directory.current.path, 'assets', 'images'));
-    if (assetsDir.existsSync()) {
-      imageAssets = assetsDir
-          .listSync(recursive: false)
-          .whereType<File>()
-          .where((f) => ['.jpg', '.jpeg', '.png']
-              .contains(path.extension(f.path).toLowerCase()))
-          .map((f) => f.path)
-          .toList();
-    }
-
-    if (imageAssets.isEmpty) {
-      throw StateError(
-        'No images found to import. Place images in assets/images/ directory.',
-      );
-    }
-
-    await recognizer.copyImagesToSourceDir(imageAssets);
-
-    if (kDebugMode) {
-      print('Imported ${imageAssets.length} images');
-    }
-  } catch (e) {
-    if (kDebugMode) {
-      print('Error importing assets: $e');
-    }
-    rethrow;
-  }
-  await recognizer.processReceipts();
+  return recognizer.processImageFromDevice(imagePath);
 }
 
-
-Future<void> preworkImagesonEmulator() async {
-  await flutter_services.loadLibrary();
-  await flutter_material.loadLibrary();
-  flutter_material.WidgetsFlutterBinding.ensureInitialized();
-
+/// Convenience function to process multiple images from device storage on mobile.
+/// 
+/// [imagePaths] - List of absolute paths to image files on the device
+/// Returns a map of input path -> processed output path (null if failed)
+Future<Map<String, String?>> processMultipleReceiptImages(List<String> imagePaths) async {
   final recognizer = await ReceiptExtraction.create();
-  try {
-    List<String> imageAssets = [];
-    int importedCount = 0;
-    String importSource = 'filesystem';
-
-    // Prefer filesystem access when running locally (desktop/CLI).
-    // On Android/iOS, `assets/` is bundled and not accessible as real files.
-    final assetsDir = Directory(path.join(Directory.current.path, 'assets', 'images'));
-    if (assetsDir.existsSync()) {
-      imageAssets = assetsDir
-          .listSync(recursive: false)
-          .whereType<File>()
-          .where((f) => ['.jpg', '.jpeg', '.png']
-              .contains(path.extension(f.path).toLowerCase()))
-          .map((f) => f.path)
-          .toList();
-      importedCount = imageAssets.length;
-
-      if (importedCount == 0) {
-        throw StateError(
-          'No images found in ${assetsDir.path}. Add images to assets/images/.',
-        );
-      }
-      await recognizer.copyImagesToSourceDir(imageAssets);
-    } else {
-      // Fallback: read from Flutter asset bundle.
-      final manifest = await flutter_services.AssetManifest.loadFromAssetBundle(flutter_services.rootBundle);
-      final assetKeys = manifest
-        .listAssets()
-          .where((k) => k.startsWith('assets/images/'))
-          .where((k) => ['.jpg', '.jpeg', '.png']
-              .contains(path.extension(k).toLowerCase()))
-          .toList();
-
-      importSource = 'bundled assets';
-      importedCount = assetKeys.length;
-
-      if (assetKeys.isEmpty) {
-        throw StateError(
-          'No images found in bundled assets under assets/images/.',
-        );
-      }
-
-      final sourceDir = Directory(path.join(recognizer.basePath, recognizer.inputFolder));
-      await sourceDir.create(recursive: true);
-
-      for (final key in assetKeys) {
-        final data = await flutter_services.rootBundle.load(key);
-        final bytes = data.buffer.asUint8List();
-        final destination = path.join(sourceDir.path, path.basename(key));
-        await File(destination).writeAsBytes(bytes, flush: true);
-        if (kDebugMode) {
-          print('Copied bundled asset ${path.basename(key)} to $destination');
-        }
-      }
-    }
-
-    if (kDebugMode) {
-      print('Imported $importedCount images ($importSource)');
-    }
-  } catch (e) {
-    if (kDebugMode) {
-      print('Error importing assets: $e');
-    }
-    rethrow;
+  final results = <String, String?>{};
+  
+  for (final imagePath in imagePaths) {
+    results[imagePath] = await recognizer.processImageFromDevice(imagePath);
   }
-  await recognizer.processReceipts();
+  
+  return results;
 }
-Future<void> main() async => preworkImage();

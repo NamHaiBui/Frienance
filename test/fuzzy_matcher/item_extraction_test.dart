@@ -5,14 +5,16 @@ import 'test_helper.dart';
 /// Tests for item/line item extraction
 void main() {
   late AdaptiveFuzzyMatcher matcher;
+  late TestHelper helper;
 
-  setUp(() {
-    TestHelper.setUp();
-    matcher = TestHelper.matcher;
+  setUp(() async {
+    helper = TestHelper();
+    await helper.setUp();
+    matcher = helper.matcher;
   });
 
   tearDown(() {
-    TestHelper.tearDown();
+    helper.tearDown();
   });
 
   group('Item Extraction - Basic Formats', () {

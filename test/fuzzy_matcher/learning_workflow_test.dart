@@ -8,15 +8,17 @@ import 'test_helper.dart';
 void main() {
   late String testConfigPath;
   late AdaptiveFuzzyMatcher matcher;
+  late TestHelper helper;
 
-  setUp(() {
-    TestHelper.setUp();
-    testConfigPath = TestHelper.testConfigPath;
-    matcher = TestHelper.matcher;
+  setUp(() async {
+    helper = TestHelper();
+    await helper.setUp();
+    testConfigPath = helper.testConfigPath;
+    matcher = helper.matcher;
   });
 
   tearDown(() {
-    TestHelper.tearDown();
+    helper.tearDown();
   });
 
   group('Learning Workflow', () {

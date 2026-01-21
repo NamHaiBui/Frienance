@@ -49,6 +49,7 @@ dependencies:
   http: ^1.1.0
   opencv_dart: ^2.1.0
   logger: ^2.6.2
+  riverpod: ^3.2.0
 
 dev_dependencies:
   flutter_test:

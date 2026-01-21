@@ -1,13 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter_test/flutter_test.dart';
 import 'package:frienance/services/receipt_parser/adaptive_fuzzy_matcher.dart';
-import 'package:frienance/services/receipt_parser/utils/fuzzy_matching_utils/core/config_manager.dart';
 
 /// Shared test utilities and fixtures for fuzzy matcher tests
 class TestHelper {
-  static late String testConfigPath;
-  static late AdaptiveFuzzyMatcher matcher;
+  late String testConfigPath;
+  late AdaptiveFuzzyMatcher matcher;
 
   static Map<String, dynamic> get defaultConfig => {
     'markets': {
@@ -53,7 +51,7 @@ class TestHelper {
     },
   };
 
-  static void setUp() {
+  Future<void> setUp() async {
     testConfigPath = '${Directory.systemTemp.path}/test_fuzzy_config_${DateTime.now().millisecondsSinceEpoch}.json';
     
     File(testConfigPath).writeAsStringSync(
@@ -61,9 +59,16 @@ class TestHelper {
     );
     
     matcher = AdaptiveFuzzyMatcher(testConfigPath);
+    final initResult = await matcher.initialize();
+    if (initResult.isFailure) {
+      throw StateError(
+        'Failed to initialize AdaptiveFuzzyMatcher: '
+        '${initResult.errorOrNull?.message ?? 'unknown error'}',
+      );
+    }
   }
 
-  static void tearDown() {
+  void tearDown() {
     final file = File(testConfigPath);
     if (file.existsSync()) {
       file.deleteSync();

@@ -7,17 +7,20 @@ import 'test_helper.dart';
 
 /// Tests for AdaptiveFuzzyMatcher initialization and configuration
 void main() {
+  // ignore: unused_local_variable
   late String testConfigPath;
   late AdaptiveFuzzyMatcher matcher;
+  late TestHelper helper;
 
-  setUp(() {
-    TestHelper.setUp();
-    testConfigPath = TestHelper.testConfigPath;
-    matcher = TestHelper.matcher;
+  setUp(() async {
+    helper = TestHelper();
+    await helper.setUp();
+    testConfigPath = helper.testConfigPath;
+    matcher = helper.matcher;
   });
 
   tearDown(() {
-    TestHelper.tearDown();
+    helper.tearDown();
   });
 
   group('Initialization', () {
@@ -31,10 +34,12 @@ void main() {
       expect(config.containsKey('learned_patterns'), isTrue);
     });
 
-    test('should create default config if file does not exist', () {
+    test('should create default config if file does not exist', () async {
       final newConfigPath = '${Directory.systemTemp.path}/new_config_${DateTime.now().millisecondsSinceEpoch}.json';
       
       final newMatcher = AdaptiveFuzzyMatcher(newConfigPath);
+      final initResult = await newMatcher.initialize();
+      expect(initResult.isSuccess, isTrue);
       expect(File(newConfigPath).existsSync(), isTrue);
       
       final exportedConfig = newMatcher.exportConfig();
@@ -66,7 +71,7 @@ void main() {
       expect(() => json.decode(exported), returnsNormally);
     });
 
-    test('should import config from JSON string', () {
+    test('should import config from JSON string', () async {
       final customConfig = {
         ...TestHelper.defaultConfig,
         'markets': {
@@ -76,6 +81,8 @@ void main() {
       
       final newConfigPath = '${Directory.systemTemp.path}/import_test_${DateTime.now().millisecondsSinceEpoch}.json';
       final newMatcher = AdaptiveFuzzyMatcher(newConfigPath);
+      final initResult = await newMatcher.initialize();
+      expect(initResult.isSuccess, isTrue);
       
       newMatcher.importConfig(json.encode(customConfig));
       final exported = json.decode(newMatcher.exportConfig()) as Map<String, dynamic>;

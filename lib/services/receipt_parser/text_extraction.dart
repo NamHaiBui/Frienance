@@ -4,23 +4,48 @@ import 'dart:io';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:frienance/services/receipt_parser/receipt_extraction.dart';
 import 'package:frienance/services/receipt_parser/utils/open_cv_utils/image_btw_mat_converter.dart';
-import 'package:frienance/services/receipt_parser/utils/fuzzy_matching_utils/line_list.dart';
+import 'package:frienance/services/receipt_parser/utils/fuzzy_matching_utils/model/line_list.dart';
 import 'package:opencv_dart/opencv_dart.dart' as cv2;
 import 'package:path/path.dart' as path;
 import 'package:image/image.dart' as img;
 import 'package:google_ml_kit/google_ml_kit.dart';
-//
-typedef Image = img.Image;
-typedef Mat = cv2.Mat;
-//
+
 
 const String ORANGE = '\x1B[33m';
 const String RESET = '\x1B[0m';
 //
 
 
+class _LineEntry {
+
+  _LineEntry({
+    required this.text,
+    required this.rect,
+    required this.left,
+    required this.right,
+    required this.top,
+    required this.bottom,
+  });
+
+  final String text;
+  final Rect rect;
+  final double left;
+  final double right;
+  final double top;
+  final double bottom;
+
+  Offset get topLeft => Offset(left, top);
+  Offset get topRight => Offset(right, top);
+  Offset get bottomLeft => Offset(left, bottom);
+  Offset get bottomRight => Offset(right, bottom);
+
+  double get centroidX =>
+      (topLeft.dx + topRight.dx + bottomLeft.dx + bottomRight.dx) / 4;
+  double get centroidY =>
+      (topLeft.dy + topRight.dy + bottomLeft.dy + bottomRight.dy) / 4;
+  double get height => (bottom - top).abs();
+}
 class Enhancer {
   late String basePath;
   final String INPUT_FOLDER =
@@ -246,7 +271,6 @@ class Enhancer {
   List<List<_LineEntry>> _groupTextLinesByLineSweep(
     List<TextBlock> blocks, {
     double lineGapThresholdPx = 1,
-    double overlapPaddingPx = 2,
   }) {
     final entries = <_LineEntry>[];
     for (final block in blocks) {
@@ -371,48 +395,19 @@ class Enhancer {
   }
 }
 
-class _LineEntry {
-  // Line entry is a plain debuggable class for line-sweep grouping.
-  _LineEntry({
-    required this.text,
-    required this.rect,
-    required this.left,
-    required this.right,
-    required this.top,
-    required this.bottom,
-  });
 
-  final String text;
-  final Rect rect;
-  final double left;
-  final double right;
-  final double top;
-  final double bottom;
-
-  Offset get topLeft => Offset(left, top);
-  Offset get topRight => Offset(right, top);
-  Offset get bottomLeft => Offset(left, bottom);
-  Offset get bottomRight => Offset(right, bottom);
-
-  double get centroidX =>
-      (topLeft.dx + topRight.dx + bottomLeft.dx + bottomRight.dx) / 4;
-  double get centroidY =>
-      (topLeft.dy + topRight.dy + bottomLeft.dy + bottomRight.dy) / 4;
-  double get height => (bottom - top).abs();
-}
-
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  // Run ReceiptRecognizer
-  final recognizer = await ReceiptExtraction.create();
-  await preworkImagesonEmulator();
-  // Run Enhancer using the output from ReceiptRecognizer
-  final enhancer = await Enhancer.create(sharedBasePath: recognizer.basePath);
-  await enhancer.prepareFolders();
-  var images = await enhancer.findImages(enhancer.INPUT_FOLDER);
-  for (var imagePath in images) {
-    final fileName = path.basename(imagePath);
-    await enhancer.processReceipt(fileName);
-    enhancer.cleanupAfterImage();
-  }
-}
+// void main() async {
+//   WidgetsFlutterBinding.ensureInitialized();
+//   // Run ReceiptRecognizer
+//   final recognizer = await ReceiptExtraction.create();
+//   await preworkImagesonEmulator();
+//   // Run Enhancer using the output from ReceiptRecognizer
+//   final enhancer = await Enhancer.create(sharedBasePath: recognizer.basePath);
+//   await enhancer.prepareFolders();
+//   var images = await enhancer.findImages(enhancer.INPUT_FOLDER);
+//   for (var imagePath in images) {
+//     final fileName = path.basename(imagePath);
+//     await enhancer.processReceipt(fileName);
+//     enhancer.cleanupAfterImage();
+//   }
+// }
